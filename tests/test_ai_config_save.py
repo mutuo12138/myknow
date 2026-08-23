@@ -81,12 +81,12 @@ class AiConfigSaveTests(unittest.TestCase):
 
     def test_save_keeps_existing_key_when_blank_supplied(self) -> None:
         with mock.patch.object(self.adapter, "validate_ai_config", return_value=[]):
-            self.adapter.save_ai_config("https://example.com/v1", "qwen3.7-max", "sk-original-key")
+            self.adapter.save_ai_config("https://example.com/v1", "qwen3.7-max", "existing-token-placeholder")
         with mock.patch.object(self.adapter, "validate_ai_config", return_value=[]):
             status = self.adapter.save_ai_config("https://example.com/v1", "qwen3.8-max", "")
         config = self.adapter.load_ai_config()
         self.assertEqual(config["model"], "qwen3.8-max")
-        self.assertEqual(config["api_key"], "sk-original-key")
+        self.assertEqual(config["api_key"], "existing-token-placeholder")
         self.assertFalse(status.get("api_key_configured", True) is False or not status["api_key_configured"])
 
     def test_blank_key_without_existing_is_rejected(self) -> None:

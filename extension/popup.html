@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>myknow</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header><span class="brand-mark"><i></i><i></i><i></i></span><div><h1>myknow</h1><p id="connection"><i></i><span>正在检查本机服务</span></p></div></header>
+    <main>
+      <label class="folder-picker" for="folder"><span>保存到</span><select id="folder"><option value="inbox">收件箱</option></select></label>
+      <button id="capture" class="primary" type="button"><span>保存当前网页</span><small>保留页面画面和可搜索正文</small></button>
+      <p id="result" role="status"></p>
+      <section class="quick-capture-setting" aria-labelledby="quick-capture-title">
+        <div><b id="quick-capture-title">网页悬浮采集窗</b><small id="quick-capture-hint">显示在普通网页右侧</small></div>
+        <label class="quick-switch" title="显示或关闭网页悬浮采集窗">
+          <input id="quick-capture-enabled" type="checkbox" role="switch" aria-describedby="quick-capture-hint" checked>
+          <span aria-hidden="true"></span>
+        </label>
+      </section>
+      <section class="shortcut-panel" aria-labelledby="shortcut-title">
+        <div class="shortcut-heading"><b id="shortcut-title">快捷保存</b><button id="edit-shortcuts" type="button">修改快捷键</button></div>
+        <div class="shortcut-row"><span>鼠标下的图片 / 视频 / 链接</span><kbd id="shortcut-asset">读取中</kbd></div>
+        <div class="shortcut-row"><span>当前网页</span><kbd id="shortcut-page">读取中</kbd></div>
+        <p>快捷键会保存到上方选择的文件夹。</p>
+      </section>
+      <p class="capture-note"><b>悬浮窗可以随时关闭。</b>网页内点击关闭按钮，或使用上方开关；拖动和快捷键仍可继续使用。</p>
+    </main>
+    <footer><button id="open-library" type="button">打开素材库</button><button id="check" type="button" title="重新检查连接" aria-label="重新检查连接">重新检查</button></footer>
+    <script src="popup.js"></script>
+  </body>
+</html>

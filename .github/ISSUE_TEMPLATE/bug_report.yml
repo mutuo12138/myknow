@@ -1,0 +1,25 @@
+name: Bug report
+description: 报告可复现的问题
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述
+      description: 请说明实际结果和预期结果。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请提供最小、可重复的步骤，不要上传真实素材或密钥。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+    validations:
+      required: true

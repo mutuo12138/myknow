@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "purpose": "Muse Vault P0-A persistent acceptance fixtures",
+  "counts": {
+    "image": 5,
+    "page": 5,
+    "document": 5,
+    "video": 5
+  },
+  "failure_cases": [
+    {
+      "id": "integrity-forced-file-commit-failure",
+      "kind": "capture",
+      "expected": "failed"
+    },
+    {
+      "id": "worker-download-unreachable",
+      "kind": "download",
+      "expected": "dead-after-retries"
+    }
+  ],
+  "items": [
+    {
+      "id": "image-01",
+      "material_type": "image",
+      "file": "image-01.png",
+      "expected": "ready",
+      "title": "本地验收图片 1"
+    },
+    {
+      "id": "image-02",
+      "material_type": "image",
+      "file": "image-02.png",
+      "expected": "ready",
+      "title": "本地验收图片 2"
+    },
+    {
+      "id": "image-03",
+      "material_type": "image",
+      "file": "image-03.png",
+      "expected": "ready",
+      "title": "本地验收图片 3"
+    },
+    {
+      "id": "image-04",
+      "material_type": "image",
+      "file": "image-04.png",
+      "expected": "ready",
+      "title": "本地验收图片 4"
+    },
+    {
+      "id": "image-05",
+      "material_type": "image",
+      "file": "image-05.png",
+      "expected": "ready",
+      "title": "本地验收图片 5"
+    },
+    {
+      "id": "page-01",
+      "material_type": "page",
+      "file": "page-01.html",
+      "preview": "page-01-preview.jpg",
+      "expected": "ready",
+      "title": "本地验收网页 1"
+    },
+    {
+      "id": "page-02",
+      "material_type": "page",
+      "file": "page-02.html",
+      "preview": "page-02-preview.jpg",
+      "expected": "ready",
+      "title": "本地验收网页 2"
+    },
+    {
+      "id": "page-03",
+      "material_type": "page",
+      "file": "page-03.html",
+      "preview": "page-03-preview.jpg",
+      "expected": "ready",
+      "title": "本地验收网页 3"
+    },
+    {
+      "id": "page-04",
+      "material_type": "page",
+      "file": "page-04.html",
+      "preview": "page-04-preview.jpg",
+      "expected": "ready",
+      "title": "本地验收网页 4"
+    },
+    {
+      "id": "page-05",
+      "material_type": "page",
+      "file": "page-05.html",
+      "preview": "page-05-preview.jpg",
+      "expected": "ready",
+      "title": "本地验收网页 5"
+    },
+    {
+      "id": "document-01",
+      "material_type": "document",
+      "file": "document-01.pdf",
+      "expected": "ready",
+      "title": "本地验收文档 1"
+    },
+    {
+      "id": "document-02",
+      "material_type": "document",
+      "file": "document-02.pdf",
+      "expected": "ready",
+      "title": "本地验收文档 2"
+    },
+    {
+      "id": "document-03",
+      "material_type": "document",
+      "file": "document-03.pdf",
+      "expected": "ready",
+      "title": "本地验收文档 3"
+    },
+    {
+      "id": "document-04",
+      "material_type": "document",
+      "file": "document-04.pdf",
+      "expected": "ready",
+      "title": "本地验收文档 4"
+    },
+    {
+      "id": "document-05",
+      "material_type": "document",
+      "file": "document-05.pdf",
+      "expected": "ready",
+      "title": "本地验收文档 5"
+    },
+    {
+      "id": "video-01",
+      "material_type": "video",
+      "file": null,
+      "preview": "video-01-poster.jpg",
+      "expected": "reference_only",
+      "title": "本地验收视频引用 1",
+      "failure_reason": null
+    },
+    {
+      "id": "video-02",
+      "material_type": "video",
+      "file": null,
+      "preview": "video-02-poster.jpg",
+      "expected": "reference_only",
+      "title": "本地验收视频引用 2",
+      "failure_reason": null
+    },
+    {
+      "id": "video-03",
+      "material_type": "video",
+      "file": null,
+      "preview": "video-03-poster.jpg",
+      "expected": "reference_only",
+      "title": "本地验收视频引用 3",
+      "failure_reason": null
+    },
+    {
+      "id": "video-04",
+      "material_type": "video",
+      "file": null,
+      "preview": "video-04-poster.jpg",
+      "expected": "reference_only",
+      "title": "本地验收视频引用 4",
+      "failure_reason": null
+    },
+    {
+      "id": "video-05",
+      "material_type": "video",
+      "file": null,
+      "preview": "video-05-poster.jpg",
+      "expected": "expected_failure",
+      "title": "本地验收视频引用 5",
+      "failure_reason": "故意使用不可达媒体地址"
+    }
+  ]
+}

@@ -1,0 +1,760 @@
+@font-face {
+  font-family: "Muse Sans";
+  src: local("MiSans-Regular"), local("MiSans");
+  font-display: swap;
+}
+
+#muse-capture-panel {
+  position: fixed;
+  z-index: 2147483647;
+  left: var(--muse-panel-left, auto);
+  top: var(--muse-panel-top, auto);
+  right: auto;
+  bottom: auto;
+  width: min(438px, calc(100vw - 32px));
+  overflow: hidden;
+  visibility: hidden;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 13px;
+  background: #202830;
+  color: #f5f8fa;
+  box-shadow: 0 26px 70px rgba(5, 12, 18, .42);
+  font: 13px/1.5 "Muse Sans", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  animation: muse-panel-in 260ms cubic-bezier(.16, 1, .3, 1);
+  -webkit-font-smoothing: antialiased;
+}
+
+#muse-capture-panel,
+#muse-capture-panel * {
+  box-sizing: border-box;
+}
+
+#muse-capture-panel[data-positioned="true"] {
+  visibility: visible;
+}
+
+#muse-capture-panel[data-mode="drag"] {
+  animation: none;
+}
+
+.muse-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 16px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, .1);
+  background: #26313a;
+}
+
+.muse-panel-header > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.muse-panel-header b,
+.muse-panel-header span {
+  display: block;
+}
+
+.muse-panel-header b {
+  color: #f7fafb;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.muse-panel-header div span {
+  margin-top: 2px;
+  color: #b8c3cc;
+  font-size: 11px;
+}
+
+.muse-mark {
+  position: relative;
+  display: block !important;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid #497b90;
+  border-radius: 9px;
+  background: #172b36;
+}
+
+.muse-mark i {
+  position: absolute;
+  bottom: 7px;
+  display: block;
+  width: 12px;
+  height: 18px;
+  border: 1px solid rgba(255, 255, 255, .58);
+  border-radius: 2px;
+  background: #f7fafb;
+}
+
+.muse-mark i:nth-child(1) { left: 7px; opacity: .4; transform: translateY(-2px); }
+.muse-mark i:nth-child(2) { left: 11px; opacity: .7; transform: translateY(-1px); }
+.muse-mark i:nth-child(3) { left: 15px; border-color: #fff; background: #fff; }
+
+.muse-close {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #b5c1ca;
+  cursor: pointer;
+}
+
+.muse-close::before,
+.muse-close::after {
+  position: absolute;
+  top: 17px;
+  left: 11px;
+  width: 14px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  content: "";
+}
+
+.muse-close::before { transform: rotate(45deg); }
+.muse-close::after { transform: rotate(-45deg); }
+
+.muse-close:hover {
+  background: #37434c;
+  color: #ffffff;
+}
+
+.muse-drop-zone {
+  position: relative;
+  display: grid;
+  min-height: 170px;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  margin: 16px;
+  overflow: hidden;
+  border: 1px dashed #7c8993;
+  border-radius: 10px;
+  background: #182027;
+  color: #c6d0d7;
+  text-align: center;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.muse-drop-zone.dragging {
+  border-color: #68a2ff;
+  background: #202f45;
+  box-shadow: inset 0 0 0 2px rgba(104, 162, 255, .16);
+}
+
+.muse-drop-icon {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 39px;
+  height: 39px;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 9px;
+  background: #2b3740;
+}
+
+.muse-drop-icon::before {
+  position: absolute;
+  top: 9px;
+  left: 18px;
+  width: 3px;
+  height: 14px;
+  border-radius: 3px;
+  background: #eaf4f7;
+  content: "";
+}
+
+.muse-drop-icon::after {
+  position: absolute;
+  left: 13px;
+  bottom: 9px;
+  width: 10px;
+  height: 10px;
+  border-right: 3px solid #eaf4f7;
+  border-bottom: 3px solid #eaf4f7;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.muse-drop-zone strong,
+.muse-drop-zone small {
+  position: relative;
+  z-index: 2;
+}
+
+.muse-drop-zone strong {
+  margin-top: 3px;
+  color: #f7fafb;
+  font-size: 15px;
+  font-weight: 640;
+}
+
+.muse-drop-zone small {
+  color: #aab7c1;
+  font-size: 11px;
+}
+
+.muse-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: .18;
+  filter: blur(7px) saturate(.8);
+  transform: scale(1.05);
+}
+
+.muse-panel-footer {
+  display: flex;
+  align-items: end;
+  gap: 11px;
+  padding: 0 16px 16px;
+}
+
+.muse-panel-footer label {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  color: #b2bec7;
+  font-size: 11px;
+}
+
+.muse-panel-footer select {
+  width: 100%;
+  height: 42px;
+  padding: 0 10px;
+  border: 1px solid #53616c;
+  border-radius: 7px;
+  background: #172027;
+  color: #f1f5f7;
+  font: 12px "Muse Sans", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}
+
+.muse-save {
+  height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 7px;
+  background: #68a2ff;
+  color: #0d1b33;
+  cursor: pointer;
+  font-weight: 680;
+  transition: background-color 160ms ease, transform 160ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.muse-save:hover {
+  background: #83b3ff;
+}
+
+.muse-save:active {
+  transform: translateY(1px) scale(.98);
+}
+
+#muse-toast {
+  position: fixed;
+  z-index: 2147483647;
+  right: 22px;
+  bottom: 22px;
+  max-width: min(360px, calc(100vw - 44px));
+  padding: 12px 15px;
+  border: 1px solid #68a2ff;
+  border-radius: 9px;
+  background: #172a34;
+  color: #f7fafb;
+  box-shadow: 0 14px 36px rgba(5, 12, 18, .34);
+  font: 13px "Muse Sans", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  animation: muse-toast-in 220ms cubic-bezier(.16, 1, .3, 1);
+}
+
+/* Persistent capture capsule. It stays fixed at the viewport edge and only
+   expands after an explicit click, so it never follows the pointer or shakes
+   during a drag. */
+#muse-quick-capture {
+  position: fixed;
+  z-index: 2147483646;
+  top: 42vh;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  color: #f4f7f9;
+  font: 13px/1.45 "Muse Sans", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#muse-quick-capture,
+#muse-quick-capture * {
+  box-sizing: border-box;
+}
+
+#muse-quick-capture button,
+#muse-quick-capture select {
+  margin: 0;
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.muse-quick-trigger-group {
+  display: grid;
+  width: 48px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 12px;
+  background: #202830;
+  box-shadow: 0 12px 32px rgba(5, 12, 18, .24);
+  transition: transform 180ms cubic-bezier(.16, 1, .3, 1), border-color 180ms ease, background-color 180ms ease;
+}
+
+.muse-quick-dismiss {
+  position: absolute;
+  top: -12px;
+  right: -10px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 50%;
+  background: #303a43;
+  color: #d7e0e6;
+  box-shadow: 0 5px 14px rgba(5, 12, 18, .24);
+  cursor: pointer;
+  opacity: .82;
+  transition: opacity 160ms ease, transform 180ms cubic-bezier(.16, 1, .3, 1), background-color 160ms ease;
+}
+
+.muse-quick-dismiss::before,
+.muse-quick-dismiss::after {
+  position: absolute;
+  top: 14px;
+  left: 8px;
+  width: 13px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  content: "";
+}
+
+.muse-quick-dismiss::before { transform: rotate(45deg); }
+.muse-quick-dismiss::after { transform: rotate(-45deg); }
+.muse-quick-dismiss:hover { background: #46525c; color: #ffffff; opacity: 1; transform: scale(1.08); }
+.muse-quick-dismiss:active { transform: scale(.92); }
+
+.muse-quick-trigger {
+  display: grid;
+  width: 48px;
+  min-width: 48px;
+  height: 51px;
+  padding: 5px 5px 4px;
+  place-items: center;
+  align-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 11px 11px 4px 4px;
+  background: transparent;
+  color: #eef4f7;
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(.16, 1, .3, 1), background-color 180ms ease;
+}
+
+.muse-quick-trigger-group:hover {
+  border-color: rgba(104, 162, 255, .70);
+  background: #27333c;
+  transform: translateX(-2px);
+}
+
+.muse-quick-trigger:active {
+  background: #172b35;
+  transform: scale(.95);
+}
+
+.muse-quick-menu-trigger {
+  position: relative;
+  width: 46px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 3px 3px 11px 11px;
+  background: transparent;
+  color: #aebbc5;
+  cursor: pointer;
+}
+
+.muse-quick-menu-trigger::before,
+.muse-quick-menu-trigger::after {
+  position: absolute;
+  top: 9px;
+  width: 6px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  content: "";
+  transition: transform 180ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.muse-quick-menu-trigger::before { left: 17px; transform: rotate(38deg); }
+.muse-quick-menu-trigger::after { right: 17px; transform: rotate(-38deg); }
+.muse-quick-menu-trigger:hover { background: rgba(255, 255, 255, .06); color: #ffffff; }
+
+#muse-quick-capture[data-open="true"] .muse-quick-menu-trigger::before { transform: rotate(-38deg); }
+#muse-quick-capture[data-open="true"] .muse-quick-menu-trigger::after { transform: rotate(38deg); }
+
+.muse-quick-trigger-mark {
+  position: relative;
+  display: block;
+  width: 26px;
+  height: 26px;
+  overflow: hidden;
+  border: 1px solid #4e8196;
+  border-radius: 7px;
+  background: #162b35;
+}
+
+.muse-quick-trigger-mark::before,
+.muse-quick-trigger-mark::after {
+  position: absolute;
+  bottom: 5px;
+  width: 10px;
+  height: 14px;
+  border: 1px solid rgba(255, 255, 255, .74);
+  border-radius: 2px;
+  background: #f7fafb;
+  content: "";
+}
+
+.muse-quick-trigger-mark::before { left: 6px; opacity: .58; transform: translate(-2px, -2px); }
+.muse-quick-trigger-mark::after { left: 9px; }
+
+.muse-quick-trigger small {
+  color: #c4ced5;
+  font-size: 10px;
+  font-weight: 620;
+  line-height: 1;
+}
+
+.muse-quick-menu {
+  position: absolute;
+  top: 50%;
+  right: 58px;
+  width: min(318px, calc(100vw - 88px));
+  overflow: hidden;
+  visibility: hidden;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 14px;
+  background: #202830;
+  box-shadow: 0 24px 64px rgba(5, 12, 18, .38);
+  opacity: 0;
+  transform: translate(10px, -50%) scale(.975);
+  transform-origin: right center;
+  transition: opacity 190ms ease, transform 240ms cubic-bezier(.16, 1, .3, 1), visibility 0s linear 240ms;
+}
+
+#muse-quick-capture[data-open="true"] .muse-quick-menu {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(0, -50%) scale(1);
+  transition-delay: 0s;
+}
+
+#muse-quick-capture[data-open="true"] .muse-quick-trigger-group {
+  border-color: #68a2ff;
+  background: #172b35;
+}
+
+.muse-quick-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 16px 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, .09);
+}
+
+.muse-quick-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.muse-quick-header strong {
+  color: #f8fafb;
+  font-size: 15px;
+  font-weight: 670;
+}
+
+.muse-quick-header span {
+  color: #aebbc5;
+  font-size: 11.5px;
+}
+
+.muse-quick-collapse {
+  position: relative;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #aebbc5;
+  cursor: pointer;
+}
+
+.muse-quick-collapse::before,
+.muse-quick-collapse::after {
+  position: absolute;
+  top: 14px;
+  left: 9px;
+  width: 12px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  content: "";
+}
+
+.muse-quick-collapse::before { transform: rotate(45deg); }
+.muse-quick-collapse::after { transform: rotate(-45deg); }
+.muse-quick-collapse:hover { background: #303b44; color: #ffffff; }
+
+.muse-quick-folder {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  color: #b9c4cc;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.muse-quick-folder select {
+  width: 100%;
+  height: 36px;
+  padding: 0 28px 0 10px;
+  border: 1px solid #4a5863;
+  border-radius: 7px;
+  outline: 0;
+  background: #171f25;
+  color: #f0f4f6;
+  font-size: 12px;
+}
+
+.muse-quick-actions {
+  display: grid;
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+
+.muse-quick-action {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 58px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 170ms cubic-bezier(.16, 1, .3, 1), border-color 170ms ease, background-color 170ms ease;
+}
+
+.muse-quick-action > i {
+  position: relative;
+  display: block;
+  width: 32px;
+  height: 32px;
+  grid-row: 1 / 3;
+  border-radius: 8px;
+}
+
+.muse-quick-action > span {
+  align-self: end;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muse-quick-action > small {
+  align-self: start;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muse-quick-primary {
+  background: #f3f7f9;
+  color: #121a20;
+}
+
+.muse-quick-primary > i { background: #2867d8; }
+.muse-quick-primary > small { color: #52616d; }
+
+.muse-action-page::before,
+.muse-action-page::after {
+  position: absolute;
+  content: "";
+}
+
+.muse-action-page::before {
+  top: 8px;
+  left: 9px;
+  width: 13px;
+  height: 16px;
+  border: 1.5px solid #ffffff;
+  border-radius: 2px;
+}
+
+.muse-action-page::after {
+  top: 12px;
+  left: 13px;
+  width: 7px;
+  height: 1.5px;
+  background: #ffffff;
+  box-shadow: 0 4px 0 #ffffff, 0 8px 0 #ffffff;
+}
+
+.muse-quick-secondary {
+  border-color: rgba(255, 255, 255, .1);
+  background: #29333b;
+  color: #f3f7f9;
+}
+
+.muse-quick-secondary > i { background: #35424c; }
+.muse-quick-secondary > small { color: #aab7c0; }
+
+.muse-action-focus::before,
+.muse-action-focus::after {
+  position: absolute;
+  inset: 8px;
+  border: 1.5px solid #c9d8df;
+  content: "";
+}
+
+.muse-action-focus::before { border-radius: 50%; }
+.muse-action-focus::after { inset: 14px; border-radius: 50%; background: #c9d8df; }
+
+.muse-quick-action:hover:not(:disabled) { transform: translateY(-1px); }
+.muse-quick-primary:hover:not(:disabled) { background: #ffffff; }
+.muse-quick-secondary:hover:not(:disabled) { border-color: #547a8b; background: #303d46; }
+.muse-quick-action:active:not(:disabled) { transform: translateY(1px) scale(.985); }
+.muse-quick-action:disabled { cursor: not-allowed; opacity: .46; }
+
+.muse-quick-footer {
+  display: flex;
+  min-height: 43px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 16px;
+  border-top: 1px solid rgba(255, 255, 255, .09);
+  background: #1a2228;
+}
+
+.muse-quick-status {
+  min-width: 0;
+  overflow: hidden;
+  color: #9eabb4;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muse-quick-status[data-state="working"] { color: #b8cfda; }
+.muse-quick-status[data-state="success"] { color: #79c8aa; }
+.muse-quick-status[data-state="error"] { color: #ff9995; }
+
+.muse-quick-library {
+  flex: 0 0 auto;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #82b2ff;
+  cursor: pointer;
+  font-size: 11px !important;
+  font-weight: 650;
+}
+
+#muse-quick-capture button:focus-visible,
+#muse-quick-capture select:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(104, 162, 255, .30);
+}
+
+@keyframes muse-panel-in {
+  from { opacity: 0; transform: translateY(12px) scale(.975); filter: blur(4px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes muse-toast-in {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 560px) {
+  #muse-capture-panel {
+    right: 16px;
+    bottom: 16px;
+    left: auto;
+    top: auto;
+    width: min(420px, calc(100vw - 32px));
+  }
+
+  .muse-drop-zone {
+    min-height: 140px;
+  }
+
+  #muse-quick-capture {
+    top: auto;
+    right: 12px;
+    bottom: 20px;
+  }
+
+  .muse-quick-menu {
+    top: auto;
+    right: 0;
+    bottom: 68px;
+    width: min(318px, calc(100vw - 24px));
+    transform: translateY(10px) scale(.975);
+    transform-origin: right bottom;
+  }
+
+  #muse-quick-capture[data-open="true"] .muse-quick-menu {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #muse-capture-panel,
+  #muse-toast,
+  .muse-quick-menu {
+    animation: none;
+  }
+
+  .muse-save,
+  .muse-drop-zone,
+  .muse-quick-trigger,
+  .muse-quick-trigger-group,
+  .muse-quick-menu-trigger,
+  .muse-quick-dismiss,
+  .muse-quick-menu,
+  .muse-quick-action {
+    transition: none;
+  }
+}

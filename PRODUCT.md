@@ -1,4 +1,4 @@
-# Product
+# myknow Product Brief
 
 <!-- impeccable:product-schema 1 -->
 
@@ -13,13 +13,13 @@ web
 
 ## Product Purpose
 
-Muse Vault is a local-first personal knowledge and material library. It turns deliberately captured browser content and imported local files into an organized, searchable collection with usable previews, editable metadata and optional AI assistance.
+myknow is a local-first personal knowledge and material library. It turns deliberately captured browser content and imported local files into an organized, searchable collection with usable previews, editable metadata and optional AI assistance.
 
 Success means a user can save material without interrupting exploration, understand what was saved at a glance, reorganize it directly, recover mistakes and find it again without reopening the original website.
 
 ## Positioning
 
-Muse Vault combines polite browser capture, local durable storage, visual material management and optional AI enrichment in one workflow. AI is an opt-in organizing layer, not a requirement for using the library.
+myknow combines polite browser capture, local durable storage, visual material management and optional AI enrichment in one workflow. AI is an opt-in organizing layer, not a requirement for using the library.
 
 ## Operating Context
 
@@ -40,7 +40,7 @@ Muse Vault combines polite browser capture, local durable storage, visual materi
 
 ## Brand Commitments
 
-- Product name: Muse Vault.
+- Product name: myknow.
 - User-pinned visual direction: a readable, image-first desktop reference workbench with confident typography, high-contrast neutral planes, direct gallery browsing and one restrained blue focus color. It must serve designers, researchers, office workers, creators and general collectors without looking like a generic AI dashboard.
 - Inferred interaction commitment: the interface should feel light and approachable without hiding familiar library controls or reducing information density below practical daily use.
 

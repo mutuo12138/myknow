@@ -1,5 +1,5 @@
 ---
-name: Muse Vault
+name: myknow
 description: An image-first local reference workbench for collecting, reviewing, sorting, and selectively enriching personal knowledge.
 colors:
   accent-light: "#2867d8"
@@ -84,11 +84,11 @@ spacing:
   xl: "24px"
 ---
 
-# Muse Vault Design System
+# myknow Design System
 
 ## North Star: Atelier Index
 
-Muse Vault is a visual reference index used for long browsing and organization sessions. It should feel like a confident desktop image tool, not a chatbot, marketing page, or generic AI dashboard.
+myknow is a visual reference index used for long browsing and organization sessions. It should feel like a confident desktop image tool, not a chatbot, marketing page, or generic AI dashboard.
 
 The interface is readable before it is decorative. Character comes from MiSans typography, confident contrast, material thumbnails, folder previews, a working color wheel, direct sorting, and clear interaction feedback. AI remains an optional processing tool and does not own the visual identity.
 

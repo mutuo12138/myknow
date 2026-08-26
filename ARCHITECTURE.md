@@ -1,4 +1,4 @@
-# Muse Vault Architecture
+# myknow Architecture
 
 ## Deliberate collection, not crawling
 

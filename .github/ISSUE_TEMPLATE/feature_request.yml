@@ -16,3 +16,17 @@ body:
       label: 建议方案
     validations:
       required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 请描述什么结果可以说明这个需求已经完成。
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我确认没有在 issue 中提交真实素材、个人数据、数据库或密钥。
+          required: true

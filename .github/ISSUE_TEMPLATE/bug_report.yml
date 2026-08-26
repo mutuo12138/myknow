@@ -21,5 +21,23 @@ body:
     id: version
     attributes:
       label: 版本
+      description: 请填写 Git commit、发行版标签或本地构建版本。
     validations:
       required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: 请填写 Windows 版本、Python/Node 版本，以及是否使用浏览器扩展。
+      placeholder: |
+        Windows: 11 24H2
+        Python: 3.11.x
+        Node: 20.x
+        Browser: Chrome 版本 / 未使用
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图
+      description: 可粘贴脱敏后的错误日志或截图；请勿上传真实素材、数据库或密钥。

@@ -197,6 +197,55 @@ class SystemAcceptanceTests(unittest.TestCase):
         self.assertIn("ambiguous clothing", self.ai_adapter.VISION_PROMPT)
         self.assertLessEqual(self.ai_adapter.VISION_MAX_TOKENS, 700)
 
+    def test_network_image_capture_downloads_classifies_and_stores_prompts(self) -> None:
+        downloaded = self.png_bytes((220, 90, 150))
+        with mock.patch.object(self.worker, "download_image", return_value=(downloaded, "image/png")) as fetch:
+            captured = self.capture(
+                source_url="https://cdn.acceptance.example/gallery/photo-01",
+                title="网络花朵写真",
+                material_type="image",
+                media_url="https://cdn.acceptance.example/gallery/photo-01.png",
+                thumbnail_url="https://cdn.acceptance.example/gallery/photo-01.png",
+            )
+            with self.main.db() as connection:
+                stages = {row[0] for row in connection.execute("SELECT stage FROM jobs WHERE material_id=?", (captured["id"],))}
+            self.assertIn("download", stages)
+            self.drain_worker()
+        fetch.assert_called_once()
+        downloaded_detail = self.client.get(f"/api/materials/{captured['id']}").json()
+        self.assertEqual(downloaded_detail["status"], "ready")
+        self.assertTrue(Path(downloaded_detail["local_path"]).is_file())
+        self.assertEqual(downloaded_detail["category"], "图片")
+
+        self.main.update_processing_settings(self.main.ProcessingSettingsRequest(
+            ai_mode="manual", daily_request_limit=5,
+        ))
+        with mock.patch.object(self.main, "public_ai_status", return_value={"configured": True, "model": "test-model"}):
+            batch_response = self.client.post("/api/ai/batches", json={"scope": "all_unprocessed", "force": True})
+        self.assertEqual(batch_response.status_code, 200, batch_response.text)
+
+        def fake_image_analysis(material: dict) -> dict:
+            return {
+                "summary": "粉色花朵网络图片",
+                "tags": ["花朵", "粉色", "摄影"],
+                "entities": ["花朵"],
+                "category": "图片",
+                "subcategory": "写真",
+                "visual_description": "柔和粉色花朵与自然光影。",
+                "prompt_positive": "editorial flower portrait, soft natural light",
+                "prompt_negative": "text, watermark",
+                "verification_checklist": "空间边缘；服装剪裁；光线色温",
+                "_usage": {"prompt_tokens": 10, "completion_tokens": 12, "total_tokens": 22},
+                "_model": "test-model",
+            }
+
+        with mock.patch.object(self.worker, "analyze_material", side_effect=fake_image_analysis):
+            self.drain_worker()
+        enriched = self.client.get(f"/api/materials/{captured['id']}").json()
+        self.assertIn("Positive Prompt: editorial flower portrait", enriched["visual_description"])
+        self.assertIn("Negative Prompt: text, watermark", enriched["visual_description"])
+        self.assertIn("Verification: 空间边缘", enriched["visual_description"])
+
     def test_folder_tag_editing_stacked_filter_and_rejected_ai_tags(self) -> None:
         folder = self.client.post("/api/folders", json={"name": "研究资料"})
         self.assertEqual(folder.status_code, 200)

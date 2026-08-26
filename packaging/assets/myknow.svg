@@ -1,16 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">myknow viewfinder mark</title>
+  <desc id="desc">A dark camera aperture framed by four viewfinder corners.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#102342"/>
-      <stop offset="1" stop-color="#285d91"/>
-    </linearGradient>
-    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#fff8e9"/>
-      <stop offset="1" stop-color="#dceeff"/>
-    </linearGradient>
+    <radialGradient id="lens" cx="50%" cy="45%" r="62%">
+      <stop offset="0" stop-color="#516b78"/>
+      <stop offset=".48" stop-color="#24333d"/>
+      <stop offset="1" stop-color="#10161b"/>
+    </radialGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
-  <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#bg)"/>
-  <path d="M77 62h38c10 0 18 8 18 18v96c0 10-8 18-18 18H77c-10 0-18-8-18-18V80c0-10 8-18 18-18Z" fill="url(#mark)"/>
-  <path d="M141 62h38c10 0 18 8 18 18v96c0 10-8 18-18 18h-38c10-10 15-23 15-39V101c0-16-5-29-15-39Z" fill="#8ed7ff" opacity=".95"/>
-  <circle cx="196" cy="61" r="13" fill="#f7c76d"/>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#171b1e"/>
+  <circle cx="128" cy="128" r="73" fill="url(#lens)" stroke="#0a0f13" stroke-width="3"/>
+  <path d="M128 55c-22 10-36 22-48 40 15 4 27 12 38 23 18-18 37-27 58-31-13-14-27-24-48-32Z" fill="#18252d" opacity=".92"/>
+  <path d="M55 91V63h28M201 91V63h-28M55 165v28h28M201 165v28h-28" fill="none" stroke="#fff9ec" stroke-linecap="round" stroke-linejoin="round" stroke-width="10"/>
+  <path d="M55 63h28M201 193h-28" fill="none" stroke="#e7f31b" stroke-linecap="round" stroke-width="10" filter="url(#glow)"/>
+  <path d="M128 94v20M128 142v20M94 128h20M142 128h20" fill="none" stroke="#e7f31b" stroke-linecap="round" stroke-width="4"/>
+  <circle cx="128" cy="128" r="9" fill="#e7f31b" filter="url(#glow)"/>
 </svg>

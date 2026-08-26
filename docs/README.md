@@ -7,6 +7,8 @@
 - [产品说明](../PRODUCT.md)：目标用户、能力边界和产品原则。
 - [架构说明](../ARCHITECTURE.md)：数据流、AI 边界、存储和完整性设计。
 - [路线图](ROADMAP.md)：当前阶段、下一阶段和明确不承诺的事项。
+- [开发指南](DEVELOPMENT.md)：本地开发、测试和 Pull Request 工作流。
+- [图标规范](ICON_GUIDE.md)：GitHub 展示图标、Windows ICO 和源文件关系。
 - [开源发布说明](OPEN_SOURCE_RELEASE.md)：脱敏范围和公开仓库发布检查。
 - [浏览器扩展说明](../extension/README.md)：加载和使用扩展的方式。
 - [后端说明](../backend/README.md)：本地 API 的启动方式。

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用说明与开发指南
+    url: https://github.com/mutuo12138/myknow/blob/main/README.md
+    about: 提交 Issue 前请先确认启动、扩展加载和测试方式。
+  - name: 安全问题
+    url: https://github.com/mutuo12138/myknow/security/advisories/new
+    about: 请通过私密安全报告提交凭据、任意文件访问或数据泄露问题。

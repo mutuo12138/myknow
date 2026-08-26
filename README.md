@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="packaging/assets/myknow.svg" alt="myknow logo" width="96">
+  <img src="packaging/assets/icon-redesign-20260825/myknow-icon-viewfinder-v1.png" alt="myknow 最新版取景框图标" width="96">
 </p>
 
 <h1 align="center">myknow</h1>
@@ -122,6 +122,8 @@ npm run build
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | 模块、数据流、存储和安全边界 |
 | [`PRODUCT.md`](PRODUCT.md) | 产品定位、用户目标和设计原则 |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | 当前能力与后续方向 |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | 本地开发、测试和提交工作流 |
+| [`docs/ICON_GUIDE.md`](docs/ICON_GUIDE.md) | 最新品牌图标、尺寸和更新方法 |
 | [`docs/OPEN_SOURCE_RELEASE.md`](docs/OPEN_SOURCE_RELEASE.md) | 脱敏、构建、发布和回滚流程 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 提交代码、测试和 Pull Request 规则 |
 | [`SECURITY.md`](SECURITY.md) | 安全问题报告方式 |

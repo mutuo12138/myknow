@@ -12,6 +12,7 @@ hiddenimports = [
     "main",
     "worker",
     "ai_adapter",
+    "clipboard_bridge",
     "a2wsgi",
     "webview",
     "pystray",

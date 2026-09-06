@@ -39,6 +39,8 @@ export function ColorWheelFilter({ value, onChange, tolerance, onTolerance }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
   const wheelRef = useRef(null)
+  const hueFrameRef = useRef(0)
+  const pendingColorRef = useRef('')
   const preset = COLOR_OPTIONS.find(option => option.id === value)
   // The "all colours" preset intentionally uses a transparent swatch. It is
   // not a valid value for <input type="color"> and previously surfaced as a
@@ -52,6 +54,14 @@ export function ColorWheelFilter({ value, onChange, tolerance, onTolerance }) {
     '--wheel-y': (50 + Math.sin(pointerRadians) * 39) + '%',
     '--chosen-color': selectedColor,
   }
+
+  useEffect(() => {
+    return () => {
+      if (hueFrameRef.current) window.cancelAnimationFrame(hueFrameRef.current)
+      hueFrameRef.current = 0
+      pendingColorRef.current = ''
+    }
+  }, [])
 
   useEffect(() => {
     if (!open) return undefined
@@ -69,13 +79,24 @@ export function ColorWheelFilter({ value, onChange, tolerance, onTolerance }) {
     }
   }, [open])
 
+  const scheduleColorChange = nextColor => {
+    pendingColorRef.current = nextColor
+    if (hueFrameRef.current) return
+    hueFrameRef.current = window.requestAnimationFrame(() => {
+      hueFrameRef.current = 0
+      const color = pendingColorRef.current
+      pendingColorRef.current = ''
+      if (color) onChange(color)
+    })
+  }
+
   const chooseHue = event => {
     const rect = wheelRef.current.getBoundingClientRect()
     const dx = event.clientX - (rect.left + rect.width / 2)
     const dy = event.clientY - (rect.top + rect.height / 2)
     if (Math.hypot(dx, dy) < rect.width * 0.22) return
     const nextHue = (Math.atan2(dy, dx) * 180 / Math.PI + 450) % 360
-    onChange(hslToHex(nextHue))
+    scheduleColorChange(hslToHex(nextHue))
   }
 
   const beginHueDrag = event => {

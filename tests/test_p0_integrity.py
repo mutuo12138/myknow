@@ -118,6 +118,50 @@ class P0IntegrityTests(unittest.TestCase):
             content_hash = connection.execute("SELECT content_hash FROM materials").fetchone()[0]
         self.assertRegex(content_hash, r"^[0-9a-f]{64}$")
 
+    def test_protected_browser_image_can_repair_failed_remote_record(self) -> None:
+        media_url = "https://chatgpt.com/backend-api/estuary/content?id=file-protected"
+        first = self.main.capture(self.main.CaptureRequest(
+            source_url="https://chatgpt.com/c/conversation",
+            title="GPT 临时图片",
+            material_type="image",
+            media_url=media_url,
+            thumbnail_url=media_url,
+        ))
+        content = self.main.decode_data_url(self.png_data_url())[1]
+        second = self.main.capture(self.main.CaptureRequest(
+            source_url="https://chatgpt.com/c/conversation",
+            title="GPT 临时图片（重新拖入）",
+            material_type="image",
+            media_url=media_url,
+            thumbnail_url=media_url,
+            data_url=self.png_data_url(),
+            browser_session_capture=True,
+        ))
+        self.assertEqual(second["id"], first["id"])
+        with self.main.db() as connection:
+            row = connection.execute("SELECT local_path, content_hash, status FROM materials WHERE id=?", (first["id"],)).fetchone()
+        self.assertIsNotNone(row["local_path"])
+        self.assertTrue(Path(row["local_path"]).is_file())
+        self.assertEqual(row["content_hash"], self.main.sha256_bytes(content))
+        self.assertEqual(row["status"], "queued")
+
+    def test_video_capture_keeps_playable_url_and_legacy_video_is_readable(self) -> None:
+        media_url = "https://video.example.test/clip.mp4?token=temporary"
+        result = self.main.capture(self.main.CaptureRequest(
+            source_url="https://video.example.test/page",
+            title="可检视视频",
+            material_type="video",
+            media_url=media_url,
+            thumbnail_url="https://video.example.test/poster.jpg",
+        ))
+        with self.main.db() as connection:
+            row = connection.execute("SELECT media_url, thumbnail_url FROM materials WHERE id=?", (result["id"],)).fetchone()
+        self.assertEqual(row["media_url"], media_url)
+        with TestClient(self.main.app) as client:
+            response = client.get(f"/api/materials/{result['id']}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["media_url"], media_url)
+
     def test_local_folder_import_copies_and_deduplicates_images(self) -> None:
         content = self.main.decode_data_url(self.png_data_url())[1]
         with TestClient(self.main.app) as client:

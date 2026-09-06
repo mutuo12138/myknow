@@ -246,6 +246,27 @@ class SystemAcceptanceTests(unittest.TestCase):
         self.assertIn("Negative Prompt: text, watermark", enriched["visual_description"])
         self.assertIn("Verification: 空间边缘", enriched["visual_description"])
 
+    def test_network_video_capture_downloads_to_local_video_asset(self) -> None:
+        downloaded = b"\x00\x00\x00\x18ftypmp42 local acceptance video"
+        with mock.patch.object(self.worker, "download_video", return_value=(downloaded, "video/mp4")) as fetch:
+            captured = self.capture(
+                source_url="https://cdn.acceptance.example/video-page",
+                title="需要本地检视的视频",
+                material_type="video",
+                media_url="https://cdn.acceptance.example/video.mp4",
+                user_permitted_media=True,
+            )
+            with self.main.db() as connection:
+                stages = {row[0] for row in connection.execute("SELECT stage FROM jobs WHERE material_id=?", (captured["id"],))}
+            self.assertIn("download", stages)
+            self.drain_worker()
+        fetch.assert_called_once()
+        detail = self.client.get(f"/api/materials/{captured['id']}").json()
+        self.assertIn(detail["status"], {"analyzing", "ready"})
+        self.assertEqual(Path(detail["local_path"]).suffix, ".mp4")
+        self.assertTrue(Path(detail["local_path"]).is_file())
+        self.assertTrue(detail["asset_url"].endswith("/asset"))
+
     def test_folder_tag_editing_stacked_filter_and_rejected_ai_tags(self) -> None:
         folder = self.client.post("/api/folders", json={"name": "研究资料"})
         self.assertEqual(folder.status_code, 200)
@@ -379,6 +400,70 @@ class SystemAcceptanceTests(unittest.TestCase):
             self.assertTrue(detail["ai_summary"].startswith("已整理："))
             self.assertLessEqual(len(detail["tags"]), 4)
 
+    def test_immediate_auto_intake_is_not_blocked_by_old_manual_failure(self) -> None:
+        old_material = self.capture(
+            source_url="https://acceptance.example/old-failure",
+            title="历史失败素材",
+            material_type="image",
+            data_url=self.data_url(),
+        )
+        self.drain_worker()
+        fake_status = {"configured": True, "model": "acceptance-model"}
+        with mock.patch.object(self.main, "public_ai_status", return_value=fake_status):
+            self.client.put("/api/processing/settings", json={
+                "ai_mode": "manual", "auto_idle_minutes": 10, "daily_request_limit": 20,
+                "export_policy": "on_demand", "export_formats": ["pdf", "docx"],
+            })
+            manual = self.client.post("/api/ai/batches", json={"scope": "all_unprocessed"})
+            self.assertEqual(manual.status_code, 200, manual.text)
+            with mock.patch.object(self.worker, "analyze_material", side_effect=RuntimeError("历史手动失败")):
+                self.assertTrue(self.worker.process_one())
+            failed_batch = self.client.get(f"/api/ai/batches/{manual.json()['id']}").json()
+            self.assertEqual(failed_batch["state"], "paused")
+
+            settings = self.client.put("/api/processing/settings", json={
+                "ai_mode": "auto", "auto_idle_minutes": 0, "daily_request_limit": 20,
+                "export_policy": "on_demand", "export_formats": ["pdf", "docx"],
+            })
+            self.assertEqual(settings.status_code, 200, settings.text)
+            self.assertEqual(settings.json()["auto_idle_minutes"], 0)
+            new_materials = [
+                self.capture(
+                    source_url=f"https://acceptance.example/new/{index}",
+                    title=f"即时素材 {index}",
+                    material_type="image",
+                    data_url=self.data_url(content=self.png_bytes((index * 30, 100, 180))),
+                )
+                for index in range(3)
+            ]
+            self.worker._restart_recovery_done = True
+            self.assertTrue(self.worker.process_one())
+
+        with self.main.db() as connection:
+            auto_batches = connection.execute(
+                "SELECT trigger_type, total_items FROM ai_batch_runs WHERE trigger_type='auto' ORDER BY created_at DESC LIMIT 1"
+            ).fetchall()
+            self.assertEqual(len(auto_batches), 1)
+            self.assertEqual(auto_batches[0]["total_items"], len(new_materials))
+            auto_batch_id = connection.execute(
+                "SELECT id FROM ai_batch_runs WHERE trigger_type='auto' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()["id"]
+            queued_ids = {
+                row["material_id"]
+                for row in connection.execute(
+                    "SELECT material_id FROM jobs WHERE stage='ai_enrich' AND batch_id=?",
+                    (auto_batch_id,),
+                )
+            }
+        self.assertEqual(queued_ids, {item["id"] for item in new_materials})
+        self.assertNotIn(old_material["id"], queued_ids)
+        log_items = self.client.get("/api/ai/logs?limit=20").json()["items"]
+        visible_queued_ids = {
+            item["material_id"] for item in log_items
+            if item["kind"] == "item" and item["batch_id"] == auto_batch_id
+        }
+        self.assertEqual(visible_queued_ids, {item["id"] for item in new_materials})
+
     def test_ai_failure_becomes_visible_and_daily_limit_blocks_oversized_batch(self) -> None:
         material = self.capture(source_url="https://acceptance.example/ai-failure", title="AI 失败样本", material_type="page")
         self.drain_worker()
@@ -421,7 +506,7 @@ class SystemAcceptanceTests(unittest.TestCase):
     def test_extension_manifest_and_privacy_contracts(self) -> None:
         manifest = json.loads((PROJECT_ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["manifest_version"], 3)
-        self.assertEqual(manifest["version"], "0.7.2")
+        self.assertEqual(manifest["version"], "0.7.7")
         self.assertIn("capture-hovered-asset", manifest["commands"])
         self.assertIn("capture-current-page", manifest["commands"])
         background = (PROJECT_ROOT / "extension" / "background.js").read_text(encoding="utf-8")
@@ -429,8 +514,6 @@ class SystemAcceptanceTests(unittest.TestCase):
         capture_css = (PROJECT_ROOT / "extension" / "capture.css").read_text(encoding="utf-8")
         popup_html = (PROJECT_ROOT / "extension" / "popup.html").read_text(encoding="utf-8")
         popup_js = (PROJECT_ROOT / "extension" / "popup.js").read_text(encoding="utf-8")
-        self.assertIn("credentials: 'omit'", background)
-        self.assertNotIn("credentials: 'include'", background)
         self.assertIn("capture-hovered-asset", background)
         self.assertIn("capture-current-page", background)
         self.assertIn("muse-capture-active-page", background)
@@ -443,6 +526,19 @@ class SystemAcceptanceTests(unittest.TestCase):
         self.assertIn("position: fixed", capture_css)
         self.assertIn('id="quick-capture-enabled"', popup_html)
         self.assertIn("muse-set-quick-capture-visible", popup_js)
+        self.assertIn("const credentialModes = allowSession ? ['omit', 'include'] : ['omit']", background)
+        self.assertIn("credentials, cache: 'no-store'", background)
+        self.assertIn("browser_session_capture", background)
+        self.assertIn("sameOriginMedia", background)
+        self.assertIn("credentials: 'same-origin'", content)
+        self.assertIn("GPT conversation serves protected images", content)
+        self.assertIn("HTMLImageElement", content)
+        self.assertIn("canvas.toDataURL", content)
+        self.assertIn("browserVideoDataUrl", background)
+        self.assertIn("MAX_BROWSER_VIDEO_BYTES", background)
+        self.assertIn("normalizeCapturePayload", background)
+        self.assertIn("素材库拒绝了这次采集", background)
+        self.assertIn("user_permitted_media: asset.type === 'video'", content)
 
     def test_local_api_rejects_untrusted_browser_origins(self) -> None:
         before = self.client.get("/api/stats").json()["total"]

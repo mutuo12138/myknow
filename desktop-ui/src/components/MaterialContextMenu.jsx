@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { ExternalLink, Eye, FolderOpen, Maximize2, RotateCcw, Tags, Trash2 } from 'lucide-react'
+import { ClipboardCopy, ExternalLink, Eye, FolderOpen, Maximize2, RotateCcw, Tags, Trash2 } from 'lucide-react'
 
-export function MaterialContextMenu({ item, position, categories, onClose, onSelect, onPreview, onCategory, onTrash, onRestore, onRevealLocation }) {
+export function MaterialContextMenu({ item, position, categories, onClose, onSelect, onPreview, onCopyMaterial, onCategory, onTrash, onRestore, onRevealLocation }) {
   const menuRef = useRef(null)
-  const previewUrl = item?.asset_url || item?.thumbnail_asset_url || item?.thumbnail_url
+  const previewUrl = item?.thumbnail_asset_url || (item?.material_type !== 'video' ? item?.asset_url : null) || item?.thumbnail_url
 
   useLayoutEffect(() => {
     const menu = menuRef.current
@@ -62,7 +62,8 @@ export function MaterialContextMenu({ item, position, categories, onClose, onSel
   return <div className="material-context-menu" ref={menuRef} role="menu" aria-label={`${item.title} 的操作`} style={{ left: position.x, top: position.y }}>
     <div className="context-menu-heading"><strong>{item.title}</strong><span>{item.subcategory || item.category || '未分类'}</span></div>
     <button type="button" role="menuitem" onClick={act(onSelect)}><Eye size={15} /><span>在详情中查看</span></button>
-    {previewUrl ? <button type="button" role="menuitem" onClick={act(onPreview)}><Maximize2 size={15} /><span>查看大图</span></button> : null}
+    {previewUrl && item.material_type !== 'video' ? <button type="button" role="menuitem" onClick={act(onPreview)}><Maximize2 size={15} /><span>查看大图</span></button> : null}
+    {item.has_local_copy && onCopyMaterial ? <button type="button" role="menuitem" onClick={act(onCopyMaterial)}><ClipboardCopy size={15} /><span>复制到剪贴板</span></button> : null}
     {onRevealLocation && (item.local_path || item.snapshot_path) ? <button type="button" role="menuitem" onClick={act(onRevealLocation)}><FolderOpen size={15} /><span>定位原始文件</span></button> : null}
     {item.source_url ? <a role="menuitem" href={item.source_url} target="_blank" rel="noreferrer" onClick={onClose}><ExternalLink size={15} /><span>打开原始页面</span></a> : null}
     {!item.is_deleted ? <div className="context-category"><Tags size={15} /><label htmlFor={`context-category-${item.id}`}>归类到</label><select id={`context-category-${item.id}`} defaultValue="" onChange={changeCategory}><option value="" disabled>选择分类</option>{categoryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div> : null}

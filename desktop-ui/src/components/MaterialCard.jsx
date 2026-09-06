@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, BookOpen, FileText, Globe2, GripVertical, HardDrive, Image, Library, Link2, LoaderCircle, MonitorDown, MoreHorizontal, Video } from 'lucide-react'
+import { AlertTriangle, BookOpen, Check, ClipboardCopy, FileText, Globe2, GripVertical, HardDrive, Image, Library, Link2, LoaderCircle, MonitorDown, MoreHorizontal, Video } from 'lucide-react'
 import { colorFrom } from '../materials'
 
 const typeIcon = { image: Image, video: Video, document: FileText, presentation: MonitorDown, blog: BookOpen, page: Library, link: Library }
 const typeLabel = { image: '图片', video: '视频', document: '文档', presentation: '演示文稿', blog: '博客', page: '网页', link: '链接' }
 const processingLabel = { capturing: '正在保存', queued: '等待处理', analyzing: '整理中', partial: '部分完成', failed: '处理失败' }
 
-export function MaterialCard({ item, selected, dragging, onSelect, onPreview, onOpenMenu, onDragStart, onDragMove, onPointerDrop, onDragEnd, onNativeFileDrag }) {
+export function MaterialCard({ item, selected, dragging, onSelect, onPreview, onOpenMenu, onCopy, onDragStart, onDragMove, onPointerDrop, onDragEnd }) {
   const cardRef = useRef(null)
   const pointerDragRef = useRef(null)
   const mouseCleanupRef = useRef(null)
-  const externalDragCleanupRef = useRef(null)
-  const previewUrl = item.thumbnail_asset_url || item.asset_url || item.thumbnail_url
+  const previewUrl = item.thumbnail_asset_url || (item.material_type !== 'video' ? item.asset_url : null) || item.thumbnail_url
   const [imageFailed, setImageFailed] = useState(false)
+  const [copying, setCopying] = useState(false)
+  const [copied, setCopied] = useState(false)
   const Icon = typeIcon[item.material_type] || FileText
   const showImage = previewUrl && !imageFailed
   const tags = (item.tags || []).slice(0, 2)
@@ -27,7 +28,6 @@ export function MaterialCard({ item, selected, dragging, onSelect, onPreview, on
   useEffect(() => setImageFailed(false), [previewUrl])
   useEffect(() => () => {
     mouseCleanupRef.current?.()
-    externalDragCleanupRef.current?.()
   }, [])
 
   const openAtPointer = event => {
@@ -52,64 +52,20 @@ export function MaterialCard({ item, selected, dragging, onSelect, onPreview, on
     onOpenMenu(item, { x: rect.left + 24, y: rect.top + 42 })
   }
 
-  const beginDrag = event => {
-    if (event.target.closest?.('.material-preview')) {
-      beginExternalDrag(event)
-      return
-    }
-    if (!canMove) {
-      event.preventDefault()
-      return
-    }
+  const copyMaterial = async event => {
+    event.preventDefault()
     event.stopPropagation()
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('application/x-muse-material', item.id)
-    event.dataTransfer.setData('text/plain', item.id)
-    if (cardRef.current) event.dataTransfer.setDragImage(cardRef.current, 28, 28)
-    onDragStart(item)
-  }
-
-  const beginExternalDrag = event => {
-    if (window.pywebview?.api?.start_file_drag) {
-      event.preventDefault()
-      return
+    if (copying || !onCopy) return
+    setCopying(true)
+    try {
+      await onCopy(item)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    } catch {
+      setCopied(false)
+    } finally {
+      setCopying(false)
     }
-    if (!item.local_path) {
-      event.preventDefault()
-      return
-    }
-    event.stopPropagation()
-    event.dataTransfer.effectAllowed = 'copy'
-    const normalizedPath = String(item.local_path).replaceAll('\\', '/')
-    const fileUrl = `file://${encodeURI(normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`)}`
-    const mime = item.mime_type || 'application/octet-stream'
-    event.dataTransfer.setData('DownloadURL', `${mime}:${item.title || '素材'}:${fileUrl}`)
-    event.dataTransfer.setData('text/uri-list', fileUrl)
-    event.dataTransfer.setData('text/plain', item.local_path)
-  }
-
-  const beginNativeExternalDrag = event => {
-    if (event.pointerType !== 'mouse' || event.button !== 0 || !item.local_path || !window.pywebview?.api?.start_file_drag) return
-    const session = { startX: event.clientX, startY: event.clientY, started: false }
-    const cleanup = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', end)
-      externalDragCleanupRef.current = null
-    }
-    const move = moveEvent => {
-      if (session.started) return
-      if (Math.hypot(moveEvent.clientX - session.startX, moveEvent.clientY - session.startY) < 6) return
-      session.started = true
-      cleanup()
-      moveEvent.preventDefault()
-      moveEvent.stopPropagation()
-      onNativeFileDrag(item)
-    }
-    const end = () => cleanup()
-    externalDragCleanupRef.current?.()
-    externalDragCleanupRef.current = cleanup
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', end, { once: true })
   }
 
   const targetAt = (x, y) => document.elementFromPoint(x, y)?.closest?.('[data-drop-target]')?.dataset.dropTarget || ''
@@ -141,7 +97,14 @@ export function MaterialCard({ item, selected, dragging, onSelect, onPreview, on
     if (!session || session.pointerId !== event.pointerId) return
     pointerDragRef.current = null
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-    if (session.started) onPointerDrop(item.id, session.targetKey || targetAt(event.clientX, event.clientY))
+    if (session.started && event.type !== 'pointercancel') onPointerDrop(item.id, session.targetKey || targetAt(event.clientX, event.clientY))
+    onDragEnd()
+  }
+
+  const losePointerCapture = event => {
+    const session = pointerDragRef.current
+    if (!session || session.pointerId !== event.pointerId) return
+    pointerDragRef.current = null
     onDragEnd()
   }
 
@@ -163,7 +126,12 @@ export function MaterialCard({ item, selected, dragging, onSelect, onPreview, on
     const cleanup = () => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', end)
+      window.removeEventListener('blur', cancel)
       mouseCleanupRef.current = null
+    }
+    const cancel = () => {
+      cleanup()
+      if (session.started) onDragEnd()
     }
     const end = upEvent => {
       cleanup()
@@ -175,13 +143,14 @@ export function MaterialCard({ item, selected, dragging, onSelect, onPreview, on
     mouseCleanupRef.current = cleanup
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', end)
+    window.addEventListener('blur', cancel, { once: true })
   }
 
-  return <article ref={cardRef} className={`material-card ${selected ? 'selected' : ''} ${dragging ? 'is-dragging' : ''}`} data-material-id={item.id} data-material-type={item.material_type} style={{ '--material-color': colorFrom(item), '--media-ratio': mediaRatio }} draggable={canMove} onDragStart={beginDrag} onDragEnd={onDragEnd} onContextMenu={openAtPointer}>
+  return <article ref={cardRef} className={`material-card ${selected ? 'selected' : ''} ${dragging ? 'is-dragging' : ''}`} data-material-id={item.id} data-material-type={item.material_type} style={{ '--material-color': colorFrom(item), '--media-ratio': mediaRatio }} onContextMenu={openAtPointer}>
     <button className="material-card-select" onClick={() => onSelect(item)} onKeyDown={openFromKeyboard} type="button">
-      <div className="card-media" onPointerDown={beginNativeExternalDrag} onDoubleClick={event => { event.stopPropagation(); if (showImage) onPreview(item) }}>
+      <div className="card-media" onDoubleClick={event => { event.stopPropagation(); if (showImage) onPreview(item) }}>
         {showImage
-          ? <img className={`material-preview preview-${item.material_type}`} src={previewUrl} alt={item.title} width={item.thumbnail_width || undefined} height={item.thumbnail_height || undefined} loading="lazy" decoding="async" draggable={Boolean(item.local_path)} onDragStart={beginExternalDrag} onError={() => setImageFailed(true)} />
+          ? <img className={`material-preview preview-${item.material_type}`} src={previewUrl} alt={item.title} width={item.thumbnail_width || undefined} height={item.thumbnail_height || undefined} loading="lazy" decoding="async" draggable="false" onDragStart={event => event.preventDefault()} onError={() => setImageFailed(true)} />
           : <div className="media-empty"><Icon className="media-placeholder" size={30} aria-hidden="true" /><span>{item.source_name || '暂无本地预览'}</span></div>}
         <span className="type-mark"><Icon size={13} />{typeLabel[item.material_type] || '素材'}</span>
         {item.has_local_copy ? <span className="local-copy-mark" title={item.is_linked ? '原位置引用，不复制文件' : '本地副本可用'}>{item.is_linked ? <Link2 size={12} /> : <HardDrive size={12} />}{item.is_linked ? '引用' : '本地'}</span> : null}
@@ -196,7 +165,8 @@ export function MaterialCard({ item, selected, dragging, onSelect, onPreview, on
       </div>
     </button>
     <div className="card-direct-actions">
-      {canMove ? <button className="card-drag-handle" type="button" onMouseDown={beginMouseDrag} onPointerDown={beginPointerDrag} onPointerMove={movePointerDrag} onPointerUp={endPointerDrag} onPointerCancel={endPointerDrag} onClick={event => event.stopPropagation()} title="拖动整理" aria-label={`拖动整理：${item.title}`} aria-pressed={dragging}><GripVertical size={15} /></button> : null}
+      {item.has_local_copy && !item.is_deleted ? <button className="card-copy" type="button" onClick={copyMaterial} disabled={copying} title="复制到剪贴板，随后可按 Ctrl+V 粘贴" aria-label={`复制到剪贴板：${item.title}`}>{copied ? <Check size={15} /> : <ClipboardCopy size={15} />}</button> : null}
+      {canMove ? <button className="card-drag-handle" type="button" onMouseDown={beginMouseDrag} onPointerDown={beginPointerDrag} onPointerMove={movePointerDrag} onPointerUp={endPointerDrag} onPointerCancel={endPointerDrag} onLostPointerCapture={losePointerCapture} onClick={event => event.stopPropagation()} title="仅在素材库内拖动整理" aria-label={`在素材库内拖动整理：${item.title}`} aria-pressed={dragging}><GripVertical size={15} /></button> : null}
       <button className="card-more" type="button" onClick={openAtButton} title="更多操作" aria-label={`更多操作：${item.title}`}><MoreHorizontal size={16} /></button>
     </div>
   </article>

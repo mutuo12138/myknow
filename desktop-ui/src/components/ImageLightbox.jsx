@@ -13,7 +13,9 @@ export function ImageLightbox({ item, items = [], onClose, onNavigate }) {
   const imageRef = useRef(null)
   const closeRef = useRef(null)
   const closingRef = useRef(false)
+  const renderFrameRef = useRef(0)
   const viewRef = useRef({ zoom: 1, x: 0, y: 0 })
+  const viewportRef = useRef({ imageWidth: 0, imageHeight: 0, canvasWidth: 0, canvasHeight: 0 })
   const dragRef = useRef(null)
   const [zoom, setZoom] = useState(1)
   const [dragging, setDragging] = useState(false)
@@ -32,26 +34,50 @@ export function ImageLightbox({ item, items = [], onClose, onNavigate }) {
   const hasNext = currentIndex < navigableItems.length - 1
 
   const clampPan = useCallback((x, y, scale) => {
+    const viewport = viewportRef.current
+    if (!viewport.imageWidth || !viewport.canvasWidth) return { x: 0, y: 0 }
+    const maxX = Math.max(0, (viewport.imageWidth * scale - viewport.canvasWidth) / 2 + 24)
+    const maxY = Math.max(0, (viewport.imageHeight * scale - viewport.canvasHeight) / 2 + 24)
+    return { x: Math.min(maxX, Math.max(-maxX, x)), y: Math.min(maxY, Math.max(-maxY, y)) }
+  }, [])
+
+  const measureViewport = useCallback(() => {
     const canvas = canvasRef.current
     const image = imageRef.current
-    if (!canvas || !image) return { x: 0, y: 0 }
-    const maxX = Math.max(0, (image.offsetWidth * scale - canvas.clientWidth) / 2 + 24)
-    const maxY = Math.max(0, (image.offsetHeight * scale - canvas.clientHeight) / 2 + 24)
-    return { x: Math.min(maxX, Math.max(-maxX, x)), y: Math.min(maxY, Math.max(-maxY, y)) }
+    if (!canvas || !image) return
+    viewportRef.current = {
+      imageWidth: image.offsetWidth,
+      imageHeight: image.offsetHeight,
+      canvasWidth: canvas.clientWidth,
+      canvasHeight: canvas.clientHeight,
+    }
+  }, [])
+
+  const applyTransform = useCallback(() => {
+    const image = imageRef.current
+    if (!image) return
+    const { zoom: scale, x, y } = viewRef.current
+    image.style.transformOrigin = '50% 50%'
+    image.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`
   }, [])
 
   const renderView = useCallback((animate = false) => {
     const image = imageRef.current
     if (!image) return
     const { zoom: scale, x, y } = viewRef.current
-    gsap.killTweensOf(image)
-    const vars = { x, y, scale, transformOrigin: '50% 50%', force3D: true }
     if (animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      gsap.to(image, { ...vars, duration: 0.28, ease: 'power3.out', overwrite: true })
-    } else {
-      gsap.set(image, vars)
+      if (renderFrameRef.current) window.cancelAnimationFrame(renderFrameRef.current)
+      renderFrameRef.current = 0
+      gsap.killTweensOf(image)
+      gsap.to(image, { x, y, scale, transformOrigin: '50% 50%', force3D: true, duration: 0.22, ease: 'power3.out', overwrite: true })
+      return
     }
-  }, [])
+    if (renderFrameRef.current) return
+    renderFrameRef.current = window.requestAnimationFrame(() => {
+      renderFrameRef.current = 0
+      applyTransform()
+    })
+  }, [applyTransform])
 
   const changeZoom = useCallback((value, point) => {
     const canvas = canvasRef.current
@@ -119,6 +145,7 @@ export function ImageLightbox({ item, items = [], onClose, onNavigate }) {
   useLayoutEffect(() => {
     closingRef.current = false
     viewRef.current = { zoom: 1, x: 0, y: 0 }
+    viewportRef.current = { imageWidth: 0, imageHeight: 0, canvasWidth: 0, canvasHeight: 0 }
     setZoom(1)
     setDragging(false)
     dragRef.current = null
@@ -129,13 +156,14 @@ export function ImageLightbox({ item, items = [], onClose, onNavigate }) {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
     const context = gsap.context(() => {
       gsap.fromTo(rootRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.18, ease: 'power2.out' })
-      gsap.fromTo(panelRef.current, { autoAlpha: 0, filter: 'blur(8px)' }, { autoAlpha: 1, filter: 'blur(0px)', duration: 0.24, ease: 'power3.out', clearProps: 'filter,opacity,visibility' })
+      gsap.fromTo(panelRef.current, { autoAlpha: 0, y: 6 }, { autoAlpha: 1, y: 0, duration: 0.2, ease: 'power3.out', clearProps: 'transform,opacity,visibility' })
     }, rootRef)
     return () => context.revert()
   }, [])
 
   useEffect(() => {
     const handleResize = () => {
+      measureViewport()
       const current = viewRef.current
       const constrained = clampPan(current.x, current.y, current.zoom)
       viewRef.current = { ...current, ...constrained }
@@ -143,7 +171,13 @@ export function ImageLightbox({ item, items = [], onClose, onNavigate }) {
     }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [clampPan, renderView])
+  }, [clampPan, measureViewport, renderView])
+
+  useEffect(() => () => {
+    if (renderFrameRef.current) window.cancelAnimationFrame(renderFrameRef.current)
+    renderFrameRef.current = 0
+    gsap.killTweensOf(imageRef.current)
+  }, [])
 
   if (!item || !previewUrl) return null
 
@@ -184,7 +218,7 @@ export function ImageLightbox({ item, items = [], onClose, onNavigate }) {
       </header>
       <div className={`lightbox-canvas ${zoom > 1 ? 'can-pan' : ''} ${dragging ? 'is-panning' : ''}`} ref={canvasRef} onPointerDown={beginPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onWheel={event => { event.preventDefault(); changeZoom(viewRef.current.zoom + (event.deltaY < 0 ? 0.12 : -0.12), event) }} onDoubleClick={event => changeZoom(viewRef.current.zoom > 1 ? 1 : 2, event)}>
         <button className="lightbox-dismiss" type="button" tabIndex={-1} onClick={close} aria-label="点击空白处返回素材库" />
-        <img ref={imageRef} src={previewUrl} alt={item.title} draggable="false" onLoad={() => renderView(false)} />
+        <img ref={imageRef} src={previewUrl} alt={item.title} draggable="false" onLoad={() => { measureViewport(); renderView(false) }} />
         <div className="lightbox-nav" role="group" aria-label="切换素材">
           <button className="lightbox-nav-button lightbox-prev" type="button" onClick={() => navigate(-1)} disabled={!hasPrevious} title="上一张（←）" aria-label="上一张"><ChevronLeft size={25} /></button>
           <button className="lightbox-nav-button lightbox-next" type="button" onClick={() => navigate(1)} disabled={!hasNext} title="下一张（→）" aria-label="下一张"><ChevronRight size={25} /></button>

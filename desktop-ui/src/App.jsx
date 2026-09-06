@@ -26,6 +26,8 @@ function preferredDensity() {
   return localStorage.getItem('muse-grid-density') === 'compact' ? 'compact' : 'comfortable'
 }
 
+const INSPECTOR_PREFERENCE_VERSION = 'detail-visible-2026-08-30'
+
 function buildParams({ query, category, folderId, materialType, brightness, tags, view = 'library' }) {
   const params = new URLSearchParams()
   params.set('view', view)
@@ -53,9 +55,21 @@ async function getJson(url, options) {
 export default function App() {
   const appRef = useRef(null)
   const dragGhostRef = useRef(null)
+  const dragGhostFrameRef = useRef(0)
+  const pendingDragGhostRef = useRef(null)
+  const cardEntrancePlayedRef = useRef(false)
   const [theme, setTheme] = useState(preferredTheme)
   const [gridDensity, setGridDensity] = useState(preferredDensity)
-  const [inspectorOpen, setInspectorOpen] = useState(() => localStorage.getItem('muse-inspector') !== 'closed')
+  const [inspectorOpen, setInspectorOpen] = useState(() => {
+    // The previous narrow-window experiment persisted a closed inspector.
+    // Migrate that accidental state once so the detail pane is visible again.
+    if (localStorage.getItem('muse-inspector-version') !== INSPECTOR_PREFERENCE_VERSION) {
+      localStorage.setItem('muse-inspector-version', INSPECTOR_PREFERENCE_VERSION)
+      localStorage.setItem('muse-inspector', 'open')
+      return true
+    }
+    return localStorage.getItem('muse-inspector') !== 'closed'
+  })
   const [sortOrder, setSortOrder] = useState('newest')
   const [materials, setMaterials] = useState([])
   const [categories, setCategories] = useState([])
@@ -80,11 +94,9 @@ export default function App() {
   const [connection, setConnection] = useState('checking')
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
-  const [showGuide, setShowGuide] = useState(false)
-  const [showAISettings, setShowAISettings] = useState(false)
-  const [showLocalImport, setShowLocalImport] = useState(false)
-  const [showStorageSettings, setShowStorageSettings] = useState(false)
-  const [showAssistant, setShowAssistant] = useState(false)
+  // Only one non-library surface may occupy the workspace at a time. Keeping
+  // this as a single state prevents tool panels from stacking down the page.
+  const [activeSurface, setActiveSurface] = useState('library')
   const [assistantActive, setAssistantActive] = useState(false)
   const [showDemo, setShowDemo] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
@@ -99,8 +111,17 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [showBackToTop, setShowBackToTop] = useState(false)
   const [trashBulkAction, setTrashBulkAction] = useState('')
+  const [pendingImportFiles, setPendingImportFiles] = useState([])
   const toastTimerRef = useRef(null)
   const lastAIAlertRef = useRef('')
+  const aiStatusHydratedRef = useRef(false)
+  const statsSignatureRef = useRef('')
+
+  useEffect(() => () => {
+    if (dragGhostFrameRef.current) window.cancelAnimationFrame(dragGhostFrameRef.current)
+    dragGhostFrameRef.current = 0
+    pendingDragGhostRef.current = null
+  }, [])
 
   const dismissToast = useCallback(() => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
@@ -114,11 +135,18 @@ export default function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 5200)
   }, [])
 
-  const announceAIAlert = useCallback(ai => {
+  const announceAIAlert = useCallback((ai, { suppressToast = false } = {}) => {
     const alert = ai?.ai_alert
+    // The API intentionally keeps the latest failed batch for diagnosis. Prime that
+    // historical alert on the first metadata load, otherwise every app launch would
+    // incorrectly present it as a new failure. Polling still announces new alerts.
+    if (suppressToast) {
+      lastAIAlertRef.current = alert?.id || ''
+      return
+    }
     if (!alert?.id || lastAIAlertRef.current === alert.id) return
     lastAIAlertRef.current = alert.id
-    showToast(alert.message, '打开 AI 设置', () => setShowAISettings(true))
+    showToast(alert.message, '打开 AI 设置', () => setActiveSurface('organize'))
   }, [showToast])
 
   useEffect(() => () => {
@@ -167,11 +195,11 @@ export default function App() {
   useLayoutEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
     const context = gsap.context(() => {
-      const timeline = gsap.timeline({ defaults: { ease: 'power3.out', clearProps: 'transform,opacity,visibility,clipPath' } })
+      const timeline = gsap.timeline({ defaults: { ease: 'power3.out', clearProps: 'transform,opacity,visibility' } })
       timeline
         .fromTo('.app-titlebar', { y: -8, autoAlpha: 0.72 }, { y: 0, autoAlpha: 1, duration: 0.28 })
         .fromTo('.library-header > *', { y: 9, autoAlpha: 0.5 }, { y: 0, autoAlpha: 1, duration: 0.3, stagger: 0.035 }, 0.06)
-        .fromTo('.library-controls', { y: 8, autoAlpha: 0.6, clipPath: 'inset(0 0 18% 0)' }, { y: 0, autoAlpha: 1, clipPath: 'inset(0 0 0% 0)', duration: 0.34 }, 0.11)
+        .fromTo('.library-controls', { y: 8, autoAlpha: 0.6 }, { y: 0, autoAlpha: 1, duration: 0.26 }, 0.11)
     }, appRef)
     return () => context.revert()
   }, [])
@@ -234,11 +262,14 @@ export default function App() {
         setCategories(cats.items)
         setFolders(folderData.items)
         setTags(tagData.items)
+        statsSignatureRef.current = JSON.stringify({ total: overview.total, trash: overview.trash, queued: overview.queued, types: overview.types })
         setStats(overview)
         setAIStatus(ai)
-        announceAIAlert(ai)
+        const suppressInitialToast = !aiStatusHydratedRef.current
+        announceAIAlert(ai, { suppressToast: suppressInitialToast })
+        aiStatusHydratedRef.current = true
         setConnection('online')
-        setShowGuide(current => current || (overview.total === 0 && localStorage.getItem('muse-guide-dismissed') !== '1'))
+        setActiveSurface(current => current === 'library' && overview.total === 0 && localStorage.getItem('muse-guide-dismissed') !== '1' ? 'capture' : current)
       } catch (requestError) {
         if (!cancelled) setConnection('offline')
       }
@@ -247,13 +278,31 @@ export default function App() {
     const interval = window.setInterval(async () => {
       try {
         const [overview, ai] = await Promise.all([getJson('/api/stats'), getJson('/api/ai/status')])
-        if (!cancelled) { setStats(overview); setAIStatus(ai); announceAIAlert(ai) }
+        if (!cancelled) {
+          const signature = JSON.stringify({ total: overview.total, trash: overview.trash, queued: overview.queued, types: overview.types })
+          if (statsSignatureRef.current && signature !== statsSignatureRef.current) {
+            setRefreshing(true)
+            setReloadKey(value => value + 1)
+          }
+          statsSignatureRef.current = signature
+          setStats(overview)
+          setAIStatus(ai)
+          announceAIAlert(ai)
+        }
       } catch {
         // The material request owns the visible connection error.
       }
     }, 5000)
     return () => { cancelled = true; window.clearInterval(interval) }
   }, [reloadKey])
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setRefreshing(true)
+      setReloadKey(value => value + 1)
+    }, 60_000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return
@@ -317,39 +366,19 @@ export default function App() {
     if (sortOrder === 'brightest') return next.sort((a, b) => (b.mean_brightness ?? -1) - (a.mean_brightness ?? -1))
     return next.sort((a, b) => (b.captured_at || 0) - (a.captured_at || 0))
   }, [visibleMaterials, sortOrder])
-  const cardMotionKey = [deferredQuery, category, folderId, selectedTagKey, materialType, brightness, color, view, sortOrder, orderedMaterials.length ? 'ready' : 'empty'].join('|')
-
   useLayoutEffect(() => {
-    if (!visibleMaterials.length || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
+    if (cardEntrancePlayedRef.current || !visibleMaterials.length || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
+    cardEntrancePlayedRef.current = true
     const context = gsap.context(() => {
-      const cards = gsap.utils.toArray('.material-card', appRef.current).slice(0, 12)
-      gsap.fromTo(cards, { y: 12, scale: 0.985, autoAlpha: 0.3 }, {
-        y: 0, scale: 1, autoAlpha: 1, duration: 0.34, stagger: 0.018, ease: 'power3.out', clearProps: 'transform,opacity,visibility',
+      const cards = gsap.utils.toArray('.material-card', appRef.current).slice(0, 8)
+      gsap.fromTo(cards, { y: 8, autoAlpha: 0.82 }, {
+        y: 0, autoAlpha: 1, duration: 0.22, stagger: 0.014, ease: 'power3.out', clearProps: 'transform,opacity,visibility',
       })
       const resultCount = appRef.current?.querySelector('.result-count strong')
       if (resultCount) gsap.fromTo(resultCount, { scale: 0.88, color: 'var(--accent)' }, { scale: 1, color: 'var(--text)', duration: 0.24, ease: 'power2.out', clearProps: 'transform,color' })
     }, appRef)
     return () => context.revert()
-  }, [cardMotionKey])
-
-  useLayoutEffect(() => {
-    if (!selected?.id || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
-    const context = gsap.context(() => {
-      const card = appRef.current?.querySelector(`[data-material-id="${selected.id}"]`)
-      if (!card) return
-      gsap.fromTo(card, { scale: 0.985 }, { scale: 1, duration: 0.18, ease: 'power2.out', clearProps: 'transform' })
-    }, appRef)
-    return () => context.revert()
-  }, [selected?.id])
-
-  useLayoutEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
-    const context = gsap.context(() => {
-      const panels = appRef.current?.querySelectorAll('.workspace > .ai-settings, .workspace > .local-import, .workspace > .storage-settings, .workspace > .capture-guide, .workspace > .material-assistant')
-      if (panels?.length) gsap.fromTo(panels, { y: -8, autoAlpha: 0.45, clipPath: 'inset(0 0 22% 0)' }, { y: 0, autoAlpha: 1, clipPath: 'inset(0 0 0% 0)', duration: 0.3, ease: 'power3.out', clearProps: 'transform,opacity,visibility,clipPath' })
-    }, appRef)
-    return () => context.revert()
-  }, [showAISettings, showLocalImport, showStorageSettings, showGuide, showAssistant])
+  }, [visibleMaterials.length])
 
   useEffect(() => {
     setSelected(current => visibleMaterials.find(item => item.id === current?.id) || visibleMaterials[0] || null)
@@ -385,18 +414,18 @@ export default function App() {
     return () => { cancelled = true; window.clearInterval(interval) }
   }, [selected?.id, selected?.status, selected?.export_state])
 
-  const reload = () => setReloadKey(value => value + 1)
-  const refreshLibrary = () => {
+  const reload = useCallback(() => setReloadKey(value => value + 1), [])
+  const refreshLibrary = useCallback(() => {
     if (refreshing) return
     setRefreshing(true)
     reload()
-  }
-  const runAction = async action => {
+  }, [refreshing, reload])
+  const runAction = useCallback(async action => {
     setActionError('')
     try { return await action() } catch (requestError) { setActionError(requestError.message); throw requestError }
-  }
+  }, [])
   const closeGuide = () => {
-    setShowGuide(false)
+    setActiveSurface('library')
     localStorage.setItem('muse-guide-dismissed', '1')
   }
   const patchMaterial = async (materialId, patch) => runAction(async () => {
@@ -405,10 +434,40 @@ export default function App() {
     })
     reload()
   })
-  const revealOriginalLocation = item => runAction(async () => {
+  const revealOriginalLocation = useCallback(item => runAction(async () => {
     const result = await getJson(`/api/materials/${item.id}/reveal-location`, { method: 'POST' })
     showToast(`已在文件夹中定位原始文件：${result.path}`)
-  })
+  }), [runAction, showToast])
+  const copyMaterialToClipboard = useCallback(item => runAction(async () => {
+    if (!item?.local_path) throw new Error('这条素材还没有可复制的本地文件')
+    const bridge = window.pywebview?.api
+    if (bridge?.copy_file_to_clipboard) {
+      const result = await bridge.copy_file_to_clipboard(item.local_path)
+      if (!result?.ok) throw new Error(result?.error || '复制失败')
+      showToast(result.formats?.some(format => ['image', 'png'].includes(format)) ? '图片和文件已复制，可在目标位置按 Ctrl+V' : '文件已复制，可在目标位置按 Ctrl+V')
+      return result
+    }
+    if (!navigator.clipboard?.writeText) throw new Error('当前运行环境不支持文件剪贴板，请使用桌面版')
+    await navigator.clipboard.writeText(item.local_path)
+    showToast('已复制本地路径；桌面版可直接复制文件')
+    return { ok: true, formats: ['text'] }
+  }), [runAction, showToast])
+
+  useEffect(() => {
+    const copySelectedMaterial = event => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'c') return
+      if (activeSurface !== 'library' || !selected?.has_local_copy || selected.is_deleted) return
+      const activeElement = document.activeElement
+      const tagName = activeElement?.tagName
+      const isEditing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tagName) || activeElement?.isContentEditable
+      const selection = window.getSelection?.()
+      if (isEditing || (selection && !selection.isCollapsed)) return
+      event.preventDefault()
+      copyMaterialToClipboard(selected).catch(() => {})
+    }
+    window.addEventListener('keydown', copySelectedMaterial)
+    return () => window.removeEventListener('keydown', copySelectedMaterial)
+  }, [activeSurface, copyMaterialToClipboard, selected])
   const createFolder = name => runAction(async () => {
     const folder = await getJson('/api/folders', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
@@ -564,30 +623,59 @@ export default function App() {
   }
   const moveDragGhost = ({ x, y, targetKey }) => {
     setActiveDropTarget(current => current === targetKey ? current : targetKey)
-    if (dragGhostRef.current) gsap.set(dragGhostRef.current, { x: x + 14, y: y + 14, autoAlpha: 1, force3D: true })
+    pendingDragGhostRef.current = { x: x + 14, y: y + 14 }
+    if (dragGhostFrameRef.current) return
+    dragGhostFrameRef.current = window.requestAnimationFrame(() => {
+      dragGhostFrameRef.current = 0
+      const next = pendingDragGhostRef.current
+      pendingDragGhostRef.current = null
+      const ghost = dragGhostRef.current
+      if (!ghost || !next) return
+      ghost.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`
+      ghost.style.opacity = '1'
+    })
+  }
+  const hideDragGhost = () => {
+    if (dragGhostFrameRef.current) window.cancelAnimationFrame(dragGhostFrameRef.current)
+    dragGhostFrameRef.current = 0
+    pendingDragGhostRef.current = null
+    if (dragGhostRef.current) dragGhostRef.current.style.opacity = '0'
   }
   const finishPointerDrop = (materialId, targetKey) => {
     const target = dropTargetFromKey(targetKey)
     setActiveDropTarget('')
-    if (dragGhostRef.current) gsap.set(dragGhostRef.current, { autoAlpha: 0 })
+    hideDragGhost()
     setDraggingMaterial(null)
     if (target) handleDropMaterial(materialId, target)
   }
   const endDragSession = () => {
     setDraggingMaterial(null)
     setActiveDropTarget('')
-    if (dragGhostRef.current) gsap.set(dragGhostRef.current, { autoAlpha: 0 })
+    hideDragGhost()
   }
-  const startNativeFileDrag = item => {
-    const bridge = window.pywebview?.api
-    if (!bridge?.start_file_drag || !item?.local_path) return
-    bridge.start_file_drag(item.local_path).then(result => {
-      if (result?.error) showToast(result.error)
-    }).catch(error => showToast(`拖出失败：${error.message || String(error)}`))
+  const hasExternalFiles = event => {
+    const types = Array.from(event.dataTransfer?.types || [])
+    return types.includes('Files') && !types.includes('application/x-muse-material')
+  }
+  const handleFileDragOver = event => {
+    if (!hasExternalFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+  const handleFileDrop = event => {
+    if (!hasExternalFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    const files = Array.from(event.dataTransfer.files || [])
+    if (!files.length) return
+    setPendingImportFiles(files)
+    setActiveSurface('import')
+    showToast(`已接收 ${files.length} 个本机文件，请确认导入位置`)
   }
   const exitAssistantResults = () => {
     if (!assistantActive) return
     setAssistantActive(false)
+    setActiveSurface('library')
     setReloadKey(value => value + 1)
   }
   const toggleTag = tag => {
@@ -602,38 +690,30 @@ export default function App() {
     setView(nextView)
     clearFilters()
     setShowDemo(false)
+    setActiveSurface('library')
   }
 
   const openModule = module => {
     if (module === 'library') {
       pickView('library')
-      setShowGuide(false)
-      setShowAISettings(false)
-      setShowAssistant(false)
       return
     }
     if (module === 'capture') {
-      setShowGuide(true)
-      setShowAISettings(false)
-      setShowAssistant(false)
+      setActiveSurface('capture')
       return
     }
-    setShowAISettings(true)
-    setShowGuide(false)
-    setShowAssistant(false)
+    setActiveSurface('organize')
   }
 
   const openAssistant = () => {
-    pickView('library')
-    setShowGuide(false)
-    setShowAISettings(false)
-    setShowLocalImport(false)
-    setShowStorageSettings(false)
-    setShowAssistant(true)
+    setView('library')
+    clearFilters()
+    setShowDemo(false)
+    setActiveSurface('assistant')
   }
 
   const closeAssistant = () => {
-    setShowAssistant(false)
+    setActiveSurface('library')
     if (assistantActive) {
       setAssistantActive(false)
       reload()
@@ -662,40 +742,48 @@ export default function App() {
   }
 
   const activeFolder = folders.find(folder => folder.id === folderId)
-  const title = view === 'trash' ? '回收站' : activeFolder?.name || category || '全部素材'
+  const libraryTitle = view === 'trash' ? '回收站' : activeFolder?.name || category || '全部素材'
+  const surfaceTitles = { capture: '网页采集', organize: '整理中心', import: '导入本机素材', storage: '存放位置', assistant: '素材助手' }
+  const title = activeSurface === 'library' ? libraryTitle : surfaceTitles[activeSurface]
   const isFiltering = Boolean(assistantActive || deferredQuery || category || folderId || selectedTags.length || materialType || brightness !== 'all' || color)
   const isEmpty = !loading && !error && (view === 'trash' ? listTotal === 0 : stats.total === 0) && !showDemo
   const demoMode = showDemo && stats.total === 0
   const displayCount = demoMode ? visibleMaterials.length : listTotal
-  const headerDescription = assistantActive ? '素材助手正在展示自然语言检索结果' : demoMode ? '预览示例，不会写入你的素材库' : view === 'trash' ? '误删素材会暂时保留在这里，可恢复或永久删除' : stats.queued ? `${stats.queued} 项正在整理` : activeFolder ? `当前保存位置：${activeFolder.name}` : '浏览、整理和重新找到你保存的内容'
+  const headerDescription = activeSurface === 'library'
+    ? (assistantActive ? '素材助手正在展示自然语言检索结果' : demoMode ? '预览示例，不会写入你的素材库' : view === 'trash' ? '误删素材会暂时保留在这里，可恢复或永久删除' : stats.queued ? `${stats.queued} 项正在整理` : activeFolder ? `当前保存位置：${activeFolder.name}` : '浏览、整理和重新找到你保存的内容')
+    : activeSurface === 'capture' ? '用最少的步骤把网页内容收进本机素材库'
+      : activeSurface === 'organize' ? '查看每次 AI 请求的用量，并控制整理策略'
+        : activeSurface === 'import' ? '把本机图片安全导入到指定文件夹，支持直接拖入'
+          : activeSurface === 'storage' ? '查看素材、数据库和运行日志的实际存放位置'
+            : '用自然语言查找并批量整理本机素材'
   const aiModeLabel = !aiStatus.configured ? '配置 AI' : aiStatus.ai_mode === 'auto' ? 'AI 自动' : aiStatus.ai_mode === 'manual' ? 'AI 待命' : 'AI 已关闭'
 
-  return <div className={`muse-app designer-board ${inspectorOpen ? '' : 'inspector-hidden'}`} ref={appRef}>
+  return <div className={`muse-app designer-board ${inspectorOpen && activeSurface === 'library' ? '' : 'inspector-hidden'}`} ref={appRef} onDragOver={handleFileDragOver} onDrop={handleFileDrop}>
     <div className="app-titlebar">
-      <div className="titlebar-brand"><span className="logo-glyph"><i /><i /><i /></span><b>myknow</b></div>
+      <div className="titlebar-brand"><img className="brand-icon" src="/favicon.png" alt="" /><b>myknow</b></div>
       <nav className="module-tabs" aria-label="工作区模块">
-        <button className={!showGuide && !showAISettings ? 'active' : ''} type="button" onClick={() => openModule('library')}>素材库</button>
-        <button className={showGuide ? 'active' : ''} type="button" onClick={() => openModule('capture')}>网页采集</button>
-        <button className={showAISettings ? 'active' : ''} type="button" onClick={() => openModule('organize')}>整理中心</button>
+        <button className={activeSurface === 'library' ? 'active' : ''} type="button" onClick={() => openModule('library')}>素材库</button>
+        <button className={activeSurface === 'capture' ? 'active' : ''} type="button" onClick={() => openModule('capture')}>网页采集</button>
+        <button className={activeSurface === 'organize' ? 'active' : ''} type="button" onClick={() => openModule('organize')}>整理中心</button>
       </nav>
       <div className="titlebar-library-state"><HardDrive size={13} /><span>本机库</span><em>{displayCount}</em></div>
     </div>
-    <Sidebar categories={categories} folders={folders} activeCategory={category} activeFolder={folderId} view={view} trashCount={stats.trash || 0} draggingMaterial={draggingMaterial} activeDropTarget={activeDropTarget} onPickView={pickView} onPickCategory={value => { pickView('library'); setCategory(value) }} onPickFolder={value => { pickView('library'); setFolderId(value) }} onCreateFolder={createFolder} onDropMaterial={handleDropMaterial} />
+    <Sidebar categories={categories} folders={folders} activeCategory={category} activeFolder={folderId} view={view} trashCount={stats.trash || 0} aiStatus={aiStatus} draggingMaterial={draggingMaterial} activeDropTarget={activeDropTarget} onPickView={pickView} onPickCategory={value => { pickView('library'); setCategory(value) }} onPickFolder={value => { pickView('library'); setFolderId(value) }} onCreateFolder={createFolder} onDropMaterial={handleDropMaterial} onOpenAI={() => setActiveSurface('organize')} />
     <main className="workspace">
       <header className="library-header">
         <div className="header-copy"><h1>{title}<span>{displayCount}</span></h1><p>{headerDescription}</p></div>
         <div className="command-bar" aria-label="素材库工具">
           <div className="command-group command-primary">
-            <button className="primary-command" type="button" onClick={() => setShowLocalImport(value => !value)}><FolderUp size={16} />导入</button>
-            <button className={`ai-command ${aiStatus.ai_mode === 'auto' ? 'ai-online' : ''}`} type="button" onClick={() => setShowAISettings(value => !value)} title={aiModeLabel} aria-label={aiModeLabel}><Layers3 size={16} />整理</button>
-            <button className={`assistant-command ${showAssistant ? 'active' : ''}`} type="button" onClick={showAssistant ? closeAssistant : openAssistant} aria-pressed={showAssistant}><SearchCheck size={16} />助手</button>
+            <button className={`primary-command ${activeSurface === 'import' ? 'active' : ''}`} type="button" onClick={() => setActiveSurface(value => value === 'import' ? 'library' : 'import')}><FolderUp size={16} />导入</button>
+            <button className={`ai-command ${aiStatus.ai_mode === 'auto' ? 'ai-online' : ''} ${activeSurface === 'organize' ? 'active' : ''}`} type="button" onClick={() => setActiveSurface(value => value === 'organize' ? 'library' : 'organize')} title={aiModeLabel} aria-label={aiModeLabel}><Layers3 size={16} />整理</button>
+            <button className={`assistant-command ${activeSurface === 'assistant' ? 'active' : ''}`} type="button" onClick={activeSurface === 'assistant' ? closeAssistant : openAssistant} aria-pressed={activeSurface === 'assistant'}><SearchCheck size={16} />助手</button>
           </div>
           <div className="command-divider" />
           <div className="command-group command-utilities">
             <button className="command-icon inspector-toggle" type="button" onClick={() => setInspectorOpen(value => !value)} title={inspectorOpen ? '隐藏素材详情' : '显示素材详情'} aria-label={inspectorOpen ? '隐藏素材详情' : '显示素材详情'} aria-pressed={inspectorOpen}>{inspectorOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}<span>详情</span></button>
-            <button className="command-icon" type="button" onClick={() => setShowStorageSettings(value => !value)} title="存放位置" aria-label="存放位置"><HardDrive size={16} /></button>
-            <button className={`command-icon ${refreshing ? 'is-loading' : ''}`} type="button" onClick={refreshLibrary} disabled={refreshing} title="刷新素材库" aria-label="刷新素材库"><RefreshCw size={16} /></button>
-            <button className="command-icon" type="button" onClick={() => setShowGuide(value => !value)} title="采集方法" aria-label="采集方法"><CircleHelp size={16} /></button>
+            <button className={`command-icon ${activeSurface === 'storage' ? 'active' : ''}`} type="button" onClick={() => setActiveSurface(value => value === 'storage' ? 'library' : 'storage')} title="存放位置" aria-label="存放位置"><HardDrive size={16} /></button>
+            <button className={`command-icon ${refreshing ? 'is-loading' : ''}`} type="button" onClick={refreshLibrary} disabled={refreshing} title="刷新素材库（自动同步中）" aria-label="刷新素材库，素材库每分钟自动同步"><RefreshCw size={16} /></button>
+            <button className={`command-icon ${activeSurface === 'capture' ? 'active' : ''}`} type="button" onClick={() => setActiveSurface(value => value === 'capture' ? 'library' : 'capture')} title="采集方法" aria-label="采集方法"><CircleHelp size={16} /></button>
             <button className="command-icon theme-toggle" type="button" onClick={toggleTheme} title={theme === 'dark' ? '切换到白天模式' : '切换到黑夜模式'} aria-label={theme === 'dark' ? '切换到白天模式' : '切换到黑夜模式'}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>
           </div>
           <span className={`host-status ${connection}`}><i />{connection === 'online' ? '本机在线' : connection === 'offline' ? '未连接' : '连接中'}</span>
@@ -703,24 +791,24 @@ export default function App() {
       </header>
 
       {actionError ? <div className="action-error" role="alert">{actionError}<button type="button" onClick={() => setActionError('')}>关闭</button></div> : null}
-      {showLocalImport ? <LocalImport folders={folders} defaultFolderId={folderId || 'inbox'} onComplete={reload} onOpenStorageSettings={() => { setShowLocalImport(false); setShowStorageSettings(true) }} onClose={() => setShowLocalImport(false)} /> : null}
-      {showStorageSettings ? <StorageSettings onClose={() => setShowStorageSettings(false)} /> : null}
-      {showAISettings ? <AISettings status={aiStatus} folders={folders} activeFolderId={folderId} onSave={saveAIConfig} onSaveProcessing={saveProcessingSettings} onStartBatch={startAIBatch} onPauseBatch={pauseAIBatch} onResumeBatch={resumeAIBatch} onRetryBatch={retryAIBatch} onClose={() => setShowAISettings(false)} /> : null}
-      {showGuide ? <CaptureGuide connection={connection} onClose={closeGuide} onPreview={() => { setShowDemo(true); closeGuide() }} /> : null}
-      {showAssistant ? <MaterialAssistant folders={folders} aiStatus={aiStatus} onClose={closeAssistant} onResults={showAssistantResults} onItemsUpdated={mergeAssistantItems} onToast={message => showToast(message)} /> : null}
+      {activeSurface !== 'library' ? <section className={`workspace-surface surface-${activeSurface}`} aria-label={title}>
+        {activeSurface === 'import' ? <LocalImport folders={folders} defaultFolderId={folderId || 'inbox'} initialFiles={pendingImportFiles} onInitialFilesConsumed={() => setPendingImportFiles([])} onComplete={() => { setPendingImportFiles([]); reload() }} onOpenStorageSettings={() => setActiveSurface('storage')} onClose={() => { setPendingImportFiles([]); setActiveSurface('library') }} /> : null}
+        {activeSurface === 'storage' ? <StorageSettings onClose={() => setActiveSurface('library')} /> : null}
+        {activeSurface === 'organize' ? <AISettings status={aiStatus} folders={folders} activeFolderId={folderId} onSave={saveAIConfig} onSaveProcessing={saveProcessingSettings} onStartBatch={startAIBatch} onPauseBatch={pauseAIBatch} onResumeBatch={resumeAIBatch} onRetryBatch={retryAIBatch} onClose={() => setActiveSurface('library')} /> : null}
+        {activeSurface === 'capture' ? <CaptureGuide connection={connection} onClose={closeGuide} onPreview={() => { setShowDemo(true); closeGuide() }} /> : null}
+        {activeSurface === 'assistant' ? <MaterialAssistant folders={folders} aiStatus={aiStatus} onClose={closeAssistant} onResults={showAssistantResults} onItemsUpdated={mergeAssistantItems} onToast={message => showToast(message)} /> : null}
+      </section> : <>
+        <Toolbar query={query} onQuery={value => { exitAssistantResults(); setQuery(value) }} materialType={materialType} onType={value => { exitAssistantResults(); setMaterialType(value) }} brightness={brightness} onBrightness={value => { exitAssistantResults(); setBrightness(value) }} color={color} onColor={value => { exitAssistantResults(); setColor(value) }} colorTolerance={colorTolerance} onColorTolerance={setColorTolerance} totalCount={demoMode ? visibleMaterials.length : listTotal} visibleCount={visibleMaterials.length} tags={tags} selectedTags={selectedTags} onToggleTag={toggleTag} onRemoveTag={tag => { exitAssistantResults(); setSelectedTags(current => current.filter(item => item !== tag)) }} scopeLabel={activeFolder?.name || category} onClearScope={() => { exitAssistantResults(); setCategory(''); setFolderId('') }} onClearFilters={clearFilters} isFiltering={isFiltering} trashMode={view === 'trash'} gridDensity={gridDensity} onDensity={setGridDensity} />
 
-      <Toolbar query={query} onQuery={value => { exitAssistantResults(); setQuery(value) }} materialType={materialType} onType={value => { exitAssistantResults(); setMaterialType(value) }} brightness={brightness} onBrightness={value => { exitAssistantResults(); setBrightness(value) }} color={color} onColor={value => { exitAssistantResults(); setColor(value) }} colorTolerance={colorTolerance} onColorTolerance={setColorTolerance} totalCount={demoMode ? visibleMaterials.length : listTotal} visibleCount={visibleMaterials.length} tags={tags} selectedTags={selectedTags} onToggleTag={toggleTag} onRemoveTag={tag => { exitAssistantResults(); setSelectedTags(current => current.filter(item => item !== tag)) }} scopeLabel={activeFolder?.name || category} onClearScope={() => { exitAssistantResults(); setCategory(''); setFolderId('') }} onClearFilters={clearFilters} isFiltering={isFiltering} trashMode={view === 'trash'} gridDensity={gridDensity} onDensity={setGridDensity} />
-
-      {error ? <section className="error-state"><Archive size={28} /><h2>素材库暂时没有连接</h2><p>{error}</p><button type="button" onClick={reload}><RefreshCw size={15} />重新连接</button></section>
-        : loading ? <div className="loading"><LoaderCircle />正在读取本机素材库</div>
-          : visibleMaterials.length ? <>
+        {error ? <section className="error-state"><Archive size={28} /><h2>素材库暂时没有连接</h2><p>{error}</p><button type="button" onClick={reload}><RefreshCw size={15} />重新连接</button></section>
+          : loading ? <div className="loading"><LoaderCircle />正在读取本机素材库</div>
+            : visibleMaterials.length ? <>
             {view === 'library' && !isFiltering ? <FolderShelf folders={folders} materials={visibleMaterials} onPickFolder={value => { pickView('library'); setFolderId(value) }} /> : null}
             <div className="collection-heading"><div><strong>{view === 'trash' ? '已删除素材' : title === '全部素材' ? '素材' : title}</strong><span>({displayCount})</span></div><div className="collection-tools"><small>{gridDensity === 'compact' ? '密集索引' : '看图优先'}</small>{view !== 'trash' ? <label className="sort-control"><ArrowDownUp size={13} /><span>排序</span><select value={sortOrder} onChange={event => setSortOrder(event.target.value)} aria-label="素材排序"><option value="newest">最近导入</option><option value="oldest">最早导入</option><option value="type">素材类型</option><option value="title">标题名称</option><option value="brightest">整体亮度</option></select></label> : <div className="trash-bulk-actions" aria-label="回收站批量操作"><button type="button" onClick={restoreAllTrash} disabled={Boolean(trashBulkAction)}><RotateCcw size={14} />{trashBulkAction === 'restore' ? '恢复中…' : '一键恢复'}</button><button className="danger" type="button" onClick={permanentlyDeleteAllTrash} disabled={Boolean(trashBulkAction)}><Trash2 size={14} />{trashBulkAction === 'permanent' ? '删除中…' : '一键永久删除'}</button></div>}</div></div>
-            <section className={`masonry density-${gridDensity}`} aria-label="素材列表">{orderedMaterials.map(item => <MaterialCard key={item.id} item={item} selected={selected?.id === item.id} dragging={draggingMaterial?.id === item.id} onSelect={setSelected} onPreview={setLightboxItem} onOpenMenu={(menuItem, position) => setContextMenu({ item: menuItem, position })} onDragStart={setDraggingMaterial} onDragMove={moveDragGhost} onPointerDrop={finishPointerDrop} onDragEnd={endDragSession} onNativeFileDrag={startNativeFileDrag} />)}</section>
+            <section className={`masonry density-${gridDensity}`} aria-label="素材列表">{orderedMaterials.map(item => <MaterialCard key={item.id} item={item} selected={selected?.id === item.id} dragging={draggingMaterial?.id === item.id} onSelect={setSelected} onPreview={setLightboxItem} onOpenMenu={(menuItem, position) => setContextMenu({ item: menuItem, position })} onCopy={copyMaterialToClipboard} onDragStart={setDraggingMaterial} onDragMove={moveDragGhost} onPointerDrop={finishPointerDrop} onDragEnd={endDragSession} />)}</section>
           </>
             : isEmpty && view === 'trash' ? <section className="empty-library compact"><Archive size={28} /><h2>回收站为空</h2><p>移入回收站的素材会暂时保留在这里。</p></section>
-            : isEmpty && showGuide ? <section className="empty-library compact"><Archive size={28} /><h2>等待第一条素材</h2><p>采集成功后，它会自动出现在这里。</p></section>
-              : isEmpty ? <section className="empty-library">
+             : isEmpty ? <section className="empty-library">
                 <div className="empty-vault-illustration-frame" aria-hidden="true">
                   <img src={emptyVaultIllustration} alt="素材库工作台插画" />
                 </div>
@@ -728,16 +816,17 @@ export default function App() {
                 <h2>先保存一条真正会用到的素材</h2>
                 <p>从浏览器采集，或直接导入已有的本机图片文件夹。</p>
                 <div>
-                  <button type="button" onClick={() => setShowLocalImport(true)}><FolderUp size={15} />导入图片文件夹</button>
-                  <button className="secondary-button" type="button" onClick={() => setShowGuide(true)}>查看采集方法</button>
+                  <button type="button" onClick={() => setActiveSurface('import')}><FolderUp size={15} />导入图片文件夹</button>
+                  <button className="secondary-button" type="button" onClick={() => setActiveSurface('capture')}>查看采集方法</button>
                   <button className="secondary-button" type="button" onClick={() => setShowDemo(true)}>预览示例素材</button>
                 </div>
               </section>
               : <section className="empty-library"><Archive size={30} /><h2>没有同时满足这些条件的素材</h2><p>叠加标签采用“并且”关系；可以减少标签，或清除其他筛选。</p><button type="button" onClick={clearFilters}>清除筛选</button></section>}
-      {hasMore && !demoMode ? <div className="load-more" ref={loadMoreSentinelRef}><button type="button" onClick={loadMore} disabled={loadingMore}>{loadingMore ? <LoaderCircle size={15} /> : <RefreshCw size={15} />}{loadingMore ? '正在加载' : '继续加载'}</button><span>已载入 {visibleMaterials.length} / {listTotal}，滚动到底部会自动继续</span></div> : null}
+        {hasMore && !demoMode ? <div className="load-more" ref={loadMoreSentinelRef}><button type="button" onClick={loadMore} disabled={loadingMore}>{loadingMore ? <LoaderCircle size={15} /> : <RefreshCw size={15} />}{loadingMore ? '正在加载' : '继续加载'}</button><span>已载入 {visibleMaterials.length} / {listTotal}，滚动到底部会自动继续</span></div> : null}
+      </>}
     </main>
-    {inspectorOpen ? <Inspector item={selected} folders={folders} aiStatus={aiStatus} view={view} onPreview={setLightboxItem} onSaveTags={(id, nextTags) => patchMaterial(id, { tags: nextTags })} onMoveFolder={(id, nextFolder) => patchMaterial(id, { folder_id: nextFolder })} onAnalyze={analyzeMaterial} onRetry={retryMaterial} onRebuildThumbnail={rebuildThumbnail} onRequestExport={requestOfflineExport} onMoveToTrash={moveToTrash} onRestore={restoreMaterial} onPermanentDelete={permanentlyDeleteMaterial} /> : null}
-    {contextMenu ? <MaterialContextMenu item={contextMenu.item} position={contextMenu.position} categories={categories} onClose={() => setContextMenu(null)} onSelect={setSelected} onPreview={setLightboxItem} onCategory={quickCategory} onTrash={quickTrash} onRestore={item => restoreMaterial(item.id)} onRevealLocation={revealOriginalLocation} /> : null}
+    {inspectorOpen && activeSurface === 'library' ? <Inspector item={selected} folders={folders} aiStatus={aiStatus} view={view} onPreview={setLightboxItem} onCopyMaterial={copyMaterialToClipboard} onRevealLocation={revealOriginalLocation} onSaveTags={(id, nextTags) => patchMaterial(id, { tags: nextTags })} onMoveFolder={(id, nextFolder) => patchMaterial(id, { folder_id: nextFolder })} onAnalyze={analyzeMaterial} onRetry={retryMaterial} onRebuildThumbnail={rebuildThumbnail} onRequestExport={requestOfflineExport} onMoveToTrash={moveToTrash} onRestore={restoreMaterial} onPermanentDelete={permanentlyDeleteMaterial} /> : null}
+    {contextMenu ? <MaterialContextMenu item={contextMenu.item} position={contextMenu.position} categories={categories} onClose={() => setContextMenu(null)} onSelect={setSelected} onPreview={setLightboxItem} onCopyMaterial={copyMaterialToClipboard} onCategory={quickCategory} onTrash={quickTrash} onRestore={item => restoreMaterial(item.id)} onRevealLocation={revealOriginalLocation} /> : null}
     {lightboxItem ? <ImageLightbox item={lightboxItem} items={orderedMaterials} onNavigate={navigateLightbox} onClose={() => setLightboxItem(null)} /> : null}
     {draggingMaterial ? <div className="material-drag-ghost" ref={dragGhostRef} aria-hidden="true"><GripVertical size={14} /><span>{draggingMaterial.title}</span></div> : null}
     {toast ? <div className="action-toast" role="status"><CheckCircle2 size={17} /><span>{toast.message}</span>{toast.action ? <button type="button" onClick={async () => { const action = toast.action; dismissToast(); await action() }}><Undo2 size={14} />{toast.actionLabel}</button> : null}<button className="toast-close" type="button" onClick={dismissToast} aria-label="关闭提示"><X size={15} /></button></div> : null}

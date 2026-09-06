@@ -65,6 +65,12 @@ DEFAULT_PROCESSING_SETTINGS = {
     "export_formats": ["pdf", "docx"],
 }
 
+# Browser-captured videos are downloaded once into the local asset store. Keep
+# the limit explicit so a protected page cannot turn a deliberate capture into
+# an unbounded memory or disk operation.
+MAX_LOCAL_VIDEO_BYTES = 120 * 1024 * 1024
+MAX_CAPTURE_DATA_URL_CHARS = 180_000_000
+
 
 @contextmanager
 def db():
@@ -115,6 +121,7 @@ def init_db(repair: bool = True) -> None:
               tags_json TEXT NOT NULL DEFAULT '[]',
               entities_json TEXT NOT NULL DEFAULT '[]',
               thumbnail_url TEXT,
+              media_url TEXT,
               user_permitted_media INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS visual_features (
@@ -264,6 +271,7 @@ def init_db(repair: bool = True) -> None:
             ("tags_user_json", "TEXT NOT NULL DEFAULT '[]'"),
             ("tags_ai_json", "TEXT NOT NULL DEFAULT '[]'"),
             ("tags_rejected_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("media_url", "TEXT"),
         ):
             if column in material_columns:
                 continue
@@ -362,9 +370,12 @@ class CaptureRequest(BaseModel):
     selection: str | None = Field(default=None, max_length=30_000)
     media_url: str | None = Field(default=None, max_length=4000)
     thumbnail_url: str | None = Field(default=None, max_length=4000)
-    data_url: str | None = Field(default=None, max_length=12_000_000)
+    data_url: str | None = Field(default=None, max_length=MAX_CAPTURE_DATA_URL_CHARS)
     html_content: str | None = Field(default=None, max_length=4_000_000)
     folder_id: str = Field(default="inbox", max_length=100)
+    # Extension-only signal: the user explicitly selected this media in the
+    # browser. It is not persisted and is only used by the extension fallback.
+    browser_session_capture: bool = False
     user_permitted_media: bool = False
 
 
@@ -394,7 +405,8 @@ class AIConfigRequest(BaseModel):
 
 class ProcessingSettingsRequest(BaseModel):
     ai_mode: AIMode
-    auto_idle_minutes: int = Field(default=10, ge=1, le=240)
+    # 0 means immediate automatic intake; positive values keep the quiet-period batch mode.
+    auto_idle_minutes: int = Field(default=10, ge=0, le=240)
     daily_request_limit: int = Field(default=100, ge=1, le=10_000)
     batch_size: int = Field(default=100, ge=1, le=10_000)
     export_policy: ExportPolicy = "on_demand"
@@ -444,6 +456,10 @@ def get_processing_settings(conn: sqlite3.Connection | None = None) -> dict:
     except (TypeError, json.JSONDecodeError):
         stored = {}
     settings = {**DEFAULT_PROCESSING_SETTINGS, **stored}
+    try:
+        settings["auto_idle_minutes"] = max(0, min(int(settings.get("auto_idle_minutes", 10)), 240))
+    except (TypeError, ValueError):
+        settings["auto_idle_minutes"] = DEFAULT_PROCESSING_SETTINGS["auto_idle_minutes"]
     try:
         settings["batch_size"] = max(1, min(int(settings.get("batch_size", 100)), 10_000))
     except (TypeError, ValueError):
@@ -500,6 +516,20 @@ def canonicalize_url(url: str) -> str:
 
 def normalize_url(url: str) -> str:
     return canonicalize_url(url)
+
+
+def stable_media_identity(url: str | None) -> str:
+    """Return a durable identity for signed browser-media URLs."""
+    canonical = canonicalize_url(url or "")
+    try:
+        parts = urlsplit(canonical)
+    except ValueError:
+        return canonical
+    if parts.hostname == "chatgpt.com" and parts.path == "/backend-api/estuary/content":
+        file_id = dict(parse_qsl(parts.query, keep_blank_values=True)).get("id")
+        if file_id:
+            return f"{parts.scheme}://{parts.netloc}{parts.path}?id={quote(file_id, safe='')}"
+    return canonical
 
 
 def decode_data_url(data_url: str | None) -> tuple[str, bytes] | None:
@@ -567,6 +597,8 @@ def safe_folder_name(folder_id: str) -> str:
 FILE_EXTENSIONS = {
     "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
     "image/avif": "avif", "application/pdf": "pdf", "video/mp4": "mp4",
+    "video/webm": "webm", "video/ogg": "ogv", "video/quicktime": "mov",
+    "video/x-msvideo": "avi", "video/x-matroska": "mkv",
 }
 
 LOCAL_IMAGE_MIMES = {
@@ -748,7 +780,7 @@ def requeue_job(conn: sqlite3.Connection, material_id: str, stage: str, batch_id
 def required_stages(material: sqlite3.Row | dict, settings: dict | None = None) -> list[str]:
     material = dict(material)
     stages: list[str] = []
-    if material.get("material_type") == "image" and material.get("thumbnail_url") and not material.get("local_path"):
+    if material.get("material_type") in {"image", "video"} and (material.get("media_url") or material.get("thumbnail_url")) and not material.get("local_path"):
         stages.append("download")
     stages.append("classify")
     if material.get("local_path") and material.get("material_type") in {"image", "page", "blog"}:
@@ -817,6 +849,7 @@ def eligible_ai_materials(
     folder_id: str | None = None,
     recent_hours: int = 24,
     force: bool = False,
+    only_unqueued: bool = False,
     captured_after: int | None = None,
     captured_before: int | None = None,
 ) -> list[str]:
@@ -824,6 +857,10 @@ def eligible_ai_materials(
     values: list[object] = []
     if not force:
         clauses.append("(done.id IS NULL OR done.state<>'done')")
+    if only_unqueued:
+        # Automatic intake must not resurrect an old failed/paused AI item and
+        # let that historical failure stop newly captured material.
+        clauses.append("done.id IS NULL")
     clauses.append("active.id IS NULL")
     if scope == "folder":
         if not folder_id:
@@ -912,22 +949,13 @@ def schedule_auto_batch() -> dict | None:
         ).fetchone()
         if active:
             return None
-        blocked = conn.execute(
-            """SELECT 1 FROM ai_batch_runs b
-               WHERE b.state='paused' AND b.trigger_type='manual'
-                 AND EXISTS (
-                   SELECT 1 FROM ai_batch_items i
-                   WHERE i.batch_id=b.id AND (i.state='failed' OR (i.state='paused' AND i.error IS NOT NULL))
-                 ) LIMIT 1"""
-        ).fetchone()
-        if blocked:
-            return None
         latest_capture = conn.execute("SELECT MAX(captured_at) FROM materials WHERE deleted_at IS NULL").fetchone()[0]
         cutoff = now() - settings["auto_idle_minutes"] * 60
         if not latest_capture or latest_capture > cutoff:
             return None
         material_ids = eligible_ai_materials(
             conn,
+            only_unqueued=True,
             captured_after=settings.get("auto_since") or 0,
             captured_before=cutoff,
         )
@@ -1046,6 +1074,27 @@ def find_existing_material(conn: sqlite3.Connection, payload: CaptureRequest, co
         ).fetchone()
         if row:
             return row
+    # A previous protected browser image may have been saved only with its
+    # temporary URL after the remote download failed. If the user drags that
+    # exact image again and the extension now supplies local bytes, enrich the
+    # existing record instead of creating a duplicate.
+    if payload.material_type in {"image", "video"} and payload.media_url:
+        row = conn.execute(
+            """SELECT * FROM materials
+               WHERE material_type=? AND (media_url=? OR thumbnail_url=?)
+               ORDER BY captured_at LIMIT 1""",
+            (payload.material_type, payload.media_url, payload.media_url),
+        ).fetchone()
+        if row:
+            return row
+        stable_media = stable_media_identity(payload.media_url)
+        if stable_media:
+            for candidate in conn.execute(
+                "SELECT * FROM materials WHERE material_type=? AND (media_url IS NOT NULL OR thumbnail_url IS NOT NULL) ORDER BY captured_at LIMIT 200",
+                (payload.material_type,),
+            ).fetchall():
+                if any(stable_media_identity(candidate[field]) == stable_media for field in ("media_url", "thumbnail_url") if candidate[field]):
+                    return candidate
     canonical = canonicalize_url(payload.source_url)
     if payload.material_type in {"page", "blog", "link"}:
         row = conn.execute(
@@ -1278,6 +1327,23 @@ def scan_integrity(repair: bool = False) -> dict:
     return report
 
 
+def parse_prompt_bundle(description: str | None) -> dict[str, str]:
+    """Expose the prompt parts stored in the visual description as UI fields."""
+    fields = {"prompt_positive": "", "prompt_negative": "", "verification_checklist": ""}
+    for raw_line in str(description or "").splitlines():
+        label, separator, value = raw_line.partition(":")
+        if not separator:
+            continue
+        key = {
+            "positive prompt": "prompt_positive",
+            "negative prompt": "prompt_negative",
+            "verification": "verification_checklist",
+        }.get(label.strip().lower())
+        if key:
+            fields[key] = value.strip()
+    return fields
+
+
 def row_to_material(row: sqlite3.Row) -> dict:
     item = dict(row)
     item["tags"] = json.loads(item.pop("tags_json") or "[]")
@@ -1298,7 +1364,13 @@ def row_to_material(row: sqlite3.Row) -> dict:
     if isinstance(histogram, list):
         histogram = {"legacy_luma": histogram, "bins": len(histogram)}
     item["histogram"] = histogram if isinstance(histogram, dict) else {}
+    item.update(parse_prompt_bundle(item.get("visual_description")))
     item["permitted_media"] = bool(item.pop("user_permitted_media"))
+    # Older video records stored the playable URL in thumbnail_url because
+    # media_url did not exist yet. Keep those records inspectable after the
+    # migration while new captures use the dedicated field.
+    if item.get("material_type") == "video" and not item.get("media_url"):
+        item["media_url"] = item.get("thumbnail_url") or None
     item["asset_url"] = f"/api/materials/{item['id']}/asset" if item.get("local_path") else None
     item["thumbnail_asset_url"] = (
         f"/api/materials/{item['id']}/thumbnail"
@@ -1910,6 +1982,8 @@ def capture(payload: CaptureRequest) -> dict:
     material_id = str(uuid.uuid4())
     decoded = decode_data_url(payload.data_url)
     local_mime, local_content = decoded if decoded else (None, None)
+    if local_content and payload.material_type == "video" and len(local_content) > MAX_LOCAL_VIDEO_BYTES:
+        raise HTTPException(413, f"视频超过 {MAX_LOCAL_VIDEO_BYTES // (1024 * 1024)}MB 本地保存限制")
     material_content_hash = sha256_bytes(local_content) if local_content and payload.material_type in {"image", "document", "presentation", "video"} else None
     key = fingerprint(payload, material_content_hash)
     canonical_url = canonicalize_url(payload.source_url)
@@ -1933,18 +2007,19 @@ def capture(payload: CaptureRequest) -> dict:
             local_added = bool(local_content and not local_path)
             snapshot_updated = bool(payload.html_content)
             next_text = combined_text or existing["text_content"] or ""
+            next_media_url = payload.media_url or existing["media_url"]
             next_thumbnail = payload.thumbnail_url or payload.media_url or existing["thumbnail_url"]
-            enriched = local_added or snapshot_updated or next_text != (existing["text_content"] or "") or next_thumbnail != existing["thumbnail_url"]
+            enriched = local_added or snapshot_updated or next_text != (existing["text_content"] or "") or next_media_url != existing["media_url"] or next_thumbnail != existing["thumbnail_url"]
             was_enriched = enriched
             if local_added or snapshot_updated:
                 operation_id = str(uuid.uuid4())
                 operation = operation_plan(operation_id, existing_id, payload.material_type, payload.folder_id, local_mime if local_added else None, payload.html_content if snapshot_updated else None)
                 create_capture_operation(conn, operation)
             conn.execute(
-                """UPDATE materials SET folder_id=?, canonical_url=?, text_content=?, thumbnail_url=?, content_hash=COALESCE(content_hash, ?),
+                """UPDATE materials SET folder_id=?, canonical_url=?, text_content=?, thumbnail_url=?, media_url=?, content_hash=COALESCE(content_hash, ?),
                    status=CASE WHEN ? THEN 'capturing' ELSE CASE WHEN ? THEN 'queued' ELSE status END END,
                    status_reason=NULL, deleted_at=NULL WHERE id=?""",
-                (payload.folder_id, canonical_url, next_text, next_thumbnail, material_content_hash,
+                (payload.folder_id, canonical_url, next_text, next_thumbnail, next_media_url, material_content_hash,
                  int(bool(operation)), int(enriched and not operation), existing_id),
             )
             if enriched and not operation:
@@ -1963,12 +2038,12 @@ def capture(payload: CaptureRequest) -> dict:
             try:
                 conn.execute(
                      """INSERT INTO materials (id, fingerprint, source_url, canonical_url, title, material_type, source_name, local_path,
-                        captured_at, status, category, subcategory, text_content, tags_json, tags_ai_json, entities_json, thumbnail_url,
+                        captured_at, status, category, subcategory, text_content, tags_json, tags_ai_json, entities_json, thumbnail_url, media_url,
                         user_permitted_media, folder_id, snapshot_path, content_hash, status_reason)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)""",
+                            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?)""",
                     (material_id, key, payload.source_url, canonical_url, payload.title, payload.material_type,
                      payload.source_name, now(), "capturing" if operation else "queued", category, subcategory, combined_text,
-                      json.dumps(tags, ensure_ascii=False), json.dumps(tags, ensure_ascii=False), payload.thumbnail_url or payload.media_url,
+                     json.dumps(tags, ensure_ascii=False), json.dumps(tags, ensure_ascii=False), payload.thumbnail_url or payload.media_url, payload.media_url,
                      int(payload.user_permitted_media), payload.folder_id, None, material_content_hash,
                      "等待文件落盘" if operation else None),
                 )
@@ -3030,6 +3105,33 @@ def list_ai_logs(
                 "input_tokens": row["input_tokens"],
                 "output_tokens": row["output_tokens"],
                 "total_tokens": row["total_tokens"],
+            })
+
+        queued_item_rows = conn.execute(
+            """SELECT i.batch_id, i.material_id, i.state, m.title,
+                      COALESCE(j.next_run_at, b.created_at) AS created_at
+               FROM ai_batch_items i
+               JOIN ai_batch_runs b ON b.id=i.batch_id
+               JOIN materials m ON m.id=i.material_id
+               LEFT JOIN jobs j ON j.batch_id=i.batch_id AND j.material_id=i.material_id AND j.stage='ai_enrich'
+               WHERE i.state IN ('queued','running') AND (? IS NULL OR i.batch_id=?)
+               ORDER BY created_at DESC LIMIT ?""",
+            (batch_id, batch_id, min(limit, 500)),
+        ).fetchall()
+        for row in queued_item_rows:
+            running = row["state"] == "running"
+            events.append({
+                "created_at": row["created_at"],
+                "level": "info",
+                "kind": "item",
+                "message": "正在解析这一条素材" if running else "已进入 AI 队列，等待解析",
+                "batch_id": row["batch_id"],
+                "material_id": row["material_id"],
+                "title": row["title"],
+                "model": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "total_tokens": None,
             })
 
         batch_rows = conn.execute(

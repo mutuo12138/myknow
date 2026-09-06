@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, FolderOpen, FolderUp, Image, LoaderCircle, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FolderOpen, FolderUp, Image, LoaderCircle, UploadCloud, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 const SUPPORTED_IMAGE = /\.(jpe?g|png|webp|gif|avif)$/i
@@ -35,7 +35,7 @@ async function postLinkedFolder(sourceDir, folderId, signal) {
   return response.json()
 }
 
-export function LocalImport({ folders, defaultFolderId, onComplete, onClose, onOpenStorageSettings }) {
+export function LocalImport({ folders, defaultFolderId, initialFiles = [], onInitialFilesConsumed, onComplete, onClose, onOpenStorageSettings }) {
   const [folderId, setFolderId] = useState(defaultFolderId || 'inbox')
   const [importMode, setImportMode] = useState('copy')
   const [linkedSource, setLinkedSource] = useState('')
@@ -45,6 +45,7 @@ export function LocalImport({ folders, defaultFolderId, onComplete, onClose, onO
   const [summary, setSummary] = useState(null)
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
+  const [dropActive, setDropActive] = useState(false)
   const controllerRef = useRef(null)
 
   useEffect(() => {
@@ -63,8 +64,8 @@ export function LocalImport({ folders, defaultFolderId, onComplete, onClose, onO
     return `${(bytes / 1024 / 1024).toFixed(bytes > 100 * 1024 * 1024 ? 0 : 1)} MB`
   }, [selection.files])
 
-  const pickFiles = event => {
-    const allFiles = Array.from(event.target.files || [])
+  const applyFiles = fileList => {
+    const allFiles = Array.from(fileList || [])
     const images = allFiles.filter(file => SUPPORTED_IMAGE.test(file.name))
     const firstPath = allFiles[0]?.webkitRelativePath || ''
     setSelection({
@@ -76,7 +77,43 @@ export function LocalImport({ folders, defaultFolderId, onComplete, onClose, onO
     setProgress(0)
     setSummary(null)
     setError(images.length ? '' : '这个文件夹里没有当前支持的图片。')
+  }
+
+  const initialFilesKey = initialFiles.map(file => `${file.name}:${file.size}:${file.lastModified}`).join('|')
+  useEffect(() => {
+    if (!initialFiles.length) return
+    applyFiles(initialFiles)
+    onInitialFilesConsumed?.()
+  }, [initialFilesKey])
+
+  const pickFiles = event => {
+    applyFiles(event.target.files)
     event.target.value = ''
+  }
+
+  const carriesFiles = event => Array.from(event.dataTransfer?.types || []).includes('Files')
+  const handleDragEnter = event => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setDropActive(true)
+  }
+  const handleDragOver = event => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'copy'
+    setDropActive(true)
+  }
+  const handleDragLeave = event => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setDropActive(false)
+  }
+  const handleDrop = event => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setDropActive(false)
+    applyFiles(event.dataTransfer.files)
   }
 
   const startImport = async () => {
@@ -165,19 +202,22 @@ export function LocalImport({ folders, defaultFolderId, onComplete, onClose, onO
       <label><span>导入方式</span><select value={importMode} onChange={event => { setImportMode(event.target.value); setError(''); setSummary(null) }} disabled={importing}><option value="copy">复制到素材库（占用新空间）</option><option value="link">原位置引用（不复制文件）</option></select></label>
       <div className="import-storage-path"><span>素材库存储</span><code title={storagePath}>{storagePath || '正在读取路径…'}</code>{onOpenStorageSettings ? <button type="button" onClick={onOpenStorageSettings}>调整位置</button> : null}</div>
     </div>
-    <div className="local-import-controls">
-      {importMode === 'link' ? <button className="directory-picker link-source-picker" type="button" onClick={chooseLinkedSource} disabled={importing}><FolderOpen size={17} /><span>{linkedSource || '选择要引用的本机素材文件夹'}</span></button> : <label className="directory-picker">
-        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" webkitdirectory="" directory="" multiple onChange={pickFiles} disabled={importing} />
-        <FolderOpen size={17} />
-        <span>{selection.folderName || '选择图片文件夹'}</span>
-      </label>}
-      <label className="import-destination"><span>保存到</span><select value={folderId} onChange={event => setFolderId(event.target.value)} disabled={importing}>{folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
-      <button className="import-start" type="button" onClick={startImport} disabled={(importMode === 'copy' ? !selection.files.length : !linkedSource) || importing}>{importing ? <LoaderCircle size={16} /> : <FolderUp size={16} />}{importing ? '正在导入' : importMode === 'link' ? '建立引用' : '开始导入'}</button>
-    </div>
+    <div className={`local-import-drop-surface ${dropActive ? 'is-drag-over' : ''}`} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+      <div className="local-import-drop-hint"><UploadCloud size={17} /><span>把本机图片拖到这里</span><small>只接收图片文件；素材卡片的整理拖拽不会误触发导入</small></div>
+      <div className="local-import-controls">
+        {importMode === 'link' ? <button className="directory-picker link-source-picker" type="button" onClick={chooseLinkedSource} disabled={importing}><FolderOpen size={17} /><span>{linkedSource || '选择要引用的本机素材文件夹'}</span></button> : <label className="directory-picker">
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" webkitdirectory="" directory="" multiple onChange={pickFiles} disabled={importing} />
+          <FolderOpen size={17} />
+          <span>{selection.folderName || (selection.files.length ? `已选择 ${selection.files.length} 张图片` : '选择图片文件夹')}</span>
+        </label>}
+        <label className="import-destination"><span>保存到</span><select value={folderId} onChange={event => setFolderId(event.target.value)} disabled={importing}>{folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
+        <button className="import-start" type="button" onClick={startImport} disabled={(importMode === 'copy' ? !selection.files.length : !linkedSource) || importing}>{importing ? <LoaderCircle size={16} /> : <FolderUp size={16} />}{importing ? '正在导入' : importMode === 'link' ? '建立引用' : '开始导入'}</button>
+      </div>
 
-    {selection.total ? <div className="import-selection"><Image size={15} /><strong>{selection.files.length} 张图片</strong><span>{sizeLabel}</span><span>目标：{selectedFolder?.name || '收件箱'}</span>{selection.unsupported ? <em>{selection.unsupported} 个非图片文件将跳过</em> : null}</div> : null}
-    {importing || progress ? <div className="import-progress" aria-live="polite"><div><span style={{ transform: `scaleX(${percent / 100})` }} /></div><p>{importing ? importMode === 'link' ? '正在建立原位置引用' : `正在复制并建档 ${progress} / ${selection.files.length}` : importMode === 'link' ? '引用处理完成' : `已处理 ${progress} / ${selection.files.length}`}</p></div> : null}
-    {summary ? <div className={`import-result ${summary.failed ? 'has-error' : ''}`}><CheckCircle2 size={16} /><span>新增 {summary.imported} 张</span><span>重复 {summary.deduplicated} 张</span><span>跳过 {summary.skipped} 张</span>{summary.failed ? <strong>失败 {summary.failed} 张</strong> : null}</div> : null}
+      {selection.total ? <div className="import-selection"><Image size={15} /><strong>{selection.files.length} 张图片</strong><span>{sizeLabel}</span><span>目标：{selectedFolder?.name || '收件箱'}</span>{selection.unsupported ? <em>{selection.unsupported} 个非图片文件将跳过</em> : null}</div> : null}
+      {importing || progress ? <div className="import-progress" aria-live="polite"><div><span style={{ transform: `scaleX(${percent / 100})` }} /></div><p>{importing ? importMode === 'link' ? '正在建立原位置引用' : `正在复制并建档 ${progress} / ${selection.files.length}` : importMode === 'link' ? '引用处理完成' : `已处理 ${progress} / ${selection.files.length}`}</p></div> : null}
+      {summary ? <div className={`import-result ${summary.failed ? 'has-error' : ''}`}><CheckCircle2 size={16} /><span>新增 {summary.imported} 张</span><span>重复 {summary.deduplicated} 张</span><span>跳过 {summary.skipped} 张</span>{summary.failed ? <strong>失败 {summary.failed} 张</strong> : null}</div> : null}
+    </div>
     {error ? <div className="import-message" role="alert"><AlertTriangle size={15} />{error}</div> : null}
     {summary?.failedItems?.length ? <details className="import-failures"><summary>查看失败详情</summary>{summary.failedItems.slice(0, 20).map((item, index) => <p key={`${item.path}-${index}`}>{item.path || '未命名图片'}：{item.reason}</p>)}</details> : null}
   </section>

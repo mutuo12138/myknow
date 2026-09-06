@@ -211,10 +211,17 @@ class DesktopApi:
             return {"ok": False, "error": str(error)}
 
     def start_file_drag(self, path: str) -> dict:
-        """Drag one verified local material file into another Windows app."""
-        from file_drag import start_file_drag
+        """Legacy guard: native OLE dragging is disabled to protect system input."""
+        return {
+            "ok": False,
+            "error": "文件拖出功能已停用，请使用“复制到剪贴板”后按 Ctrl+V",
+        }
 
-        return start_file_drag(path)
+    def copy_file_to_clipboard(self, path: str) -> dict:
+        """Copy one verified local material to the Windows clipboard."""
+        from clipboard_bridge import copy_file_to_clipboard
+
+        return copy_file_to_clipboard(path)
 
     def save_extension(self) -> dict:
         """Save the bundled browser extension through the native file dialog."""

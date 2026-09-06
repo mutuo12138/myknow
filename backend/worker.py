@@ -17,12 +17,13 @@ from PIL import Image, ImageOps
 
 from ai_adapter import analyze_material, compact_tags, redact_sensitive_text
 from main import (
-    ASSET_ROOT, STAGING_ROOT, ai_usage_today, category_for, db, finish_ai_batch_item,
+    ASSET_ROOT, MAX_LOCAL_VIDEO_BYTES, STAGING_ROOT, ai_usage_today, category_for, db, finish_ai_batch_item,
     get_processing_settings, init_db, mark_operation_failed, now, queue_job, refresh_ai_batch,
     safe_folder_name, schedule_auto_batch, sha256_bytes, start_ai_batch_item, write_staged_file,
 )
 
 MAX_IMAGE_BYTES = 30 * 1024 * 1024
+MAX_VIDEO_BYTES = MAX_LOCAL_VIDEO_BYTES
 THUMBNAIL_MAX_EDGE = 640
 _restart_recovery_done = False
 
@@ -179,6 +180,51 @@ def download_image(material: dict) -> tuple[bytes, str]:
     return b"".join(chunks), content_type
 
 
+def video_mime_from_bytes(content: bytes, declared_mime: str) -> str | None:
+    mime = (declared_mime or "").split(";", 1)[0].strip().lower()
+    if mime.startswith("video/"):
+        return mime
+    if len(content) >= 12 and content[4:8] == b"ftyp":
+        return "video/mp4"
+    if content.startswith(b"\x1a\x45\xdf\xa3"):
+        return "video/webm"
+    if content.startswith(b"OggS"):
+        return "video/ogg"
+    return None
+
+
+def download_video(material: dict) -> tuple[bytes, str]:
+    media_url = material.get("media_url") or material.get("thumbnail_url")
+    assert_public_url(media_url)
+    request = urllib.request.Request(media_url, headers={"User-Agent": "MuseVault/0.2 single-user-capture"})
+    opener = urllib.request.build_opener(PublicRedirectHandler())
+    with opener.open(request, timeout=90) as response:
+        assert_public_url(response.geturl())
+        declared_mime = response.headers.get_content_type()
+        declared_size = int(response.headers.get("content-length") or 0)
+        if declared_size > MAX_VIDEO_BYTES:
+            raise ValueError("视频超过 120MB 本地保存限制")
+        chunks, size = [], 0
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_VIDEO_BYTES:
+                raise ValueError("视频超过 120MB 本地保存限制")
+            chunks.append(chunk)
+    content = b"".join(chunks)
+    mime = video_mime_from_bytes(content, declared_mime)
+    if not mime:
+        raise ValueError(f"远程内容不是可识别的视频：{declared_mime}")
+    return content, mime
+
+
+def download_media(material: dict) -> tuple[bytes, str]:
+    """Download an explicitly captured remote media item for local playback."""
+    return download_video(material) if material.get("material_type") == "video" else download_image(material)
+
+
 def export_readable_files(material: dict, formats: list[str]) -> tuple[str | None, str | None]:
     from docx import Document
     from reportlab.lib.pagesizes import A4
@@ -263,8 +309,13 @@ def claim_download_operation(material: dict) -> dict:
 
 
 def commit_download_operation(operation: dict, material: dict, content: bytes, mime: str) -> None:
-    extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif"}.get(mime, "img")
-    final = ASSET_ROOT / "image" / safe_folder_name(material.get("folder_id") or "inbox") / f"{material['id']}.{extension}"
+    extension = {
+        "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif",
+        "video/mp4": "mp4", "video/webm": "webm", "video/ogg": "ogv", "video/quicktime": "mov",
+        "video/x-msvideo": "avi", "video/x-matroska": "mkv",
+    }.get(mime, "bin")
+    asset_type = "video" if material.get("material_type") == "video" else "image"
+    final = ASSET_ROOT / asset_type / safe_folder_name(material.get("folder_id") or "inbox") / f"{material['id']}.{extension}"
     write_staged_file(operation["staged"], content)
     final.parent.mkdir(parents=True, exist_ok=True)
     with db() as conn:
@@ -435,7 +486,7 @@ def process_one() -> bool:
         if job["stage"] == "download":
             operation = claim_download_operation(material)
             try:
-                content, mime = download_image(material)
+                content, mime = download_media(material)
                 commit_download_operation(operation, material, content, mime)
                 return True
             except Exception as error:

@@ -1,5 +1,5 @@
 (() => {
-const CONTENT_VERSION = '0.7.2'
+const CONTENT_VERSION = '0.7.7-stable-r6'
 if (globalThis.__museVaultCaptureVersion === CONTENT_VERSION) return
 globalThis.__museVaultCaptureVersion = CONTENT_VERSION
 
@@ -41,6 +41,8 @@ let quickAssetButton
 let quickCaptureStatus
 let quickFolderSelect
 let quickOutsideHandler
+let dragSession = 0
+let dragEndTimer
 
 const QUICK_CAPTURE_VISIBILITY_KEY = 'muse-quick-capture-visible'
 
@@ -172,10 +174,46 @@ function sanitizedSnapshot() {
 async function localDataUrl(asset) {
   if (asset.type !== 'image' || !asset.mediaUrl) return null
   if (asset.mediaUrl.startsWith('data:')) return asset.mediaUrl
-  if (!asset.mediaUrl.startsWith('blob:')) return null
-  const response = await fetch(asset.mediaUrl)
-  const blob = await response.blob()
+  // GPT's generated images can be visible in the logged-in page while their
+  // signed download request rejects a content-script fetch. Read the already
+  // rendered pixels in page context before falling back to network fetches.
+  const target = asset.target
+  if (target instanceof HTMLImageElement && target.complete && target.naturalWidth > 0) {
+    try {
+      const maxEdge = 4096
+      const scale = Math.min(1, maxEdge / target.naturalWidth, maxEdge / target.naturalHeight)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(target.naturalWidth * scale))
+      canvas.height = Math.max(1, Math.round(target.naturalHeight * scale))
+      canvas.getContext('2d').drawImage(target, 0, 0, canvas.width, canvas.height)
+      const rendered = canvas.toDataURL('image/png')
+      if (rendered.length <= 11_000_000) return rendered
+      const compressed = canvas.toDataURL('image/jpeg', 0.9)
+      if (compressed.length <= 11_000_000) return compressed
+    } catch {
+      // A cross-origin image without CORS taints the canvas; try fetch below.
+    }
+  }
+  let blob
+  try {
+    if (asset.mediaUrl.startsWith('blob:')) {
+      const response = await fetch(asset.mediaUrl)
+      if (!response.ok) return null
+      blob = await response.blob()
+    } else {
+      const media = new URL(asset.mediaUrl, location.href)
+      // A GPT conversation serves protected images from the same origin. Read
+      // those in the page session first so cookies never leave the page.
+      if (media.origin !== location.origin) return null
+      const response = await fetch(media.href, { credentials: 'same-origin', cache: 'no-store' })
+      if (!response.ok) return null
+      blob = await response.blob()
+    }
+  } catch {
+    return null
+  }
   if (blob.size > 8 * 1024 * 1024) throw new Error('图片超过 8MB，无法从当前网页直接读取')
+  if (!blob.type || !blob.type.toLowerCase().startsWith('image/')) return null
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result)
@@ -207,12 +245,18 @@ async function payloadFromAsset(asset, folderId = 'inbox', pagePreviewDataUrl = 
     data_url: localAssetData || (capturePage ? pagePreviewDataUrl : null),
     html_content: capturePage ? sanitizedSnapshot() : null,
     folder_id: folderId,
-    user_permitted_media: false,
+    // This flag is not a background permission grant. It only records that
+    // the user explicitly selected this image, allowing a same-origin
+    // browser-session fallback if page-context reading is blocked.
+    browser_session_capture: asset.type === 'image',
+    user_permitted_media: asset.type === 'video',
   }
 }
 
 function removePanel({ invalidate = true } = {}) {
   if (invalidate) panelRequestId += 1
+  if (dragEndTimer) window.clearTimeout(dragEndTimer)
+  dragEndTimer = null
   if (panelPositionFrame) cancelAnimationFrame(panelPositionFrame)
   panelPositionFrame = null
   if (outsideHandler) document.removeEventListener('pointerdown', outsideHandler, true)
@@ -221,15 +265,33 @@ function removePanel({ invalidate = true } = {}) {
   panel = null
 }
 
-async function getFolderState() {
-  const fallback = { items: [{ id: 'inbox', name: '收件箱', count: 0 }], defaultFolder: 'inbox' }
+function cancelHoldCapture() {
+  if (holdTimer) window.clearTimeout(holdTimer)
+  holdTimer = null
+  holdStartPoint = null
+}
+
+function fallbackFolderState() {
+  return { items: [{ id: 'inbox', name: '收件箱', count: 0 }], defaultFolder: 'inbox' }
+}
+
+function getFolderState() {
+  const fallback = fallbackFolderState()
   return new Promise(resolve => {
+    let settled = false
+    const finish = value => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      resolve(value)
+    }
+    const timeout = window.setTimeout(() => finish(fallback), 600)
     try {
       chrome.runtime.sendMessage({ type: 'muse-list-folders' }, result => {
-        if (chrome.runtime.lastError) { resolve(fallback); return }
-        resolve(result?.items?.length ? result : fallback)
+        if (chrome.runtime.lastError) { finish(fallback); return }
+        finish(result?.items?.length ? result : fallback)
       })
-    } catch { resolve(fallback) }
+    } catch { finish(fallback) }
   })
 }
 
@@ -491,19 +553,19 @@ function schedulePanelPosition(anchor) {
   })
 }
 
-async function showPanel(asset, mode = 'hold', anchor = null) {
+function showPanel(asset, mode = 'hold', anchor = null) {
   const requestId = ++panelRequestId
   removePanel({ invalidate: false })
   activeAsset = asset
   const typeName = assetTypeName(asset)
-  const folderState = await getFolderState()
-  if (requestId !== panelRequestId) return
+  const folderState = fallbackFolderState()
 
   panel = createElement('section')
   panel.id = 'muse-capture-panel'
   panel.dataset.mode = mode
   panel.dataset.assetType = asset.type
   panel.dataset.positioned = 'false'
+  panel.style.pointerEvents = 'auto'
 
   const header = createElement('header', 'muse-panel-header')
   const mark = createElement('span', 'muse-mark')
@@ -549,8 +611,18 @@ async function showPanel(asset, mode = 'hold', anchor = null) {
   dropZone.addEventListener('drop', event => { event.preventDefault(); event.stopPropagation(); submit(activeAsset, select.value) })
 
   panel.append(header, dropZone, footer)
+  const panelAnchor = anchor || { target: asset.target }
   document.body.append(panel)
-  schedulePanelPosition(anchor || { target: asset.target })
+  // Chrome 原生拖拽期间 requestAnimationFrame 可能被延后；先同步定位并显示，
+  // 确保 dropZone 在拖拽经过时已经存在且可接收 dragover/drop。
+  positionPanel(panelAnchor)
+  schedulePanelPosition(panelAnchor)
+  getFolderState().then(nextFolderState => {
+    if (requestId !== panelRequestId || !panel || !select.isConnected) return
+    const currentFolder = select.value
+    fillFolderSelect(select, nextFolderState)
+    if (nextFolderState.items.some(folder => folder.id === currentFolder)) select.value = currentFolder
+  })
   window.setTimeout(() => {
     if (requestId !== panelRequestId || !panel) return
     outsideHandler = event => { if (panel && !panel.contains(event.target)) removePanel() }
@@ -599,6 +671,12 @@ function showToast(text) {
 }
 
 document.addEventListener('dragstart', event => {
+  // Native drag may suppress pointermove; cancel the long-press path explicitly
+  // so it cannot replace the drag drop panel after 650ms.
+  cancelHoldCapture()
+  dragSession += 1
+  dragEndTimer && window.clearTimeout(dragEndTimer)
+  dragEndTimer = null
   const asset = resolveAsset(event.target, { x: event.clientX, y: event.clientY }, event.composedPath())
   if (!asset || !['image', 'video', 'link'].includes(asset.type)) return
   activeAsset = asset
@@ -607,7 +685,36 @@ document.addEventListener('dragstart', event => {
   showPanel(asset, 'drag', rect ? { rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } } : { x: event.clientX, y: event.clientY })
 }, true)
 
-document.addEventListener('dragend', () => window.setTimeout(removePanel, 180), true)
+document.addEventListener('dragend', () => {
+  cancelHoldCapture()
+  if (!panel || panel.dataset.mode !== 'drag') return
+  const session = dragSession
+  dragEndTimer = window.setTimeout(() => {
+    if (session === dragSession) removePanel()
+    dragEndTimer = null
+  }, 180)
+}, true)
+
+// Keep a capture-phase fallback for pages that put another element over the
+// drop zone or stop bubbling drag events. The panel itself is the only scope
+// where these listeners cancel the browser default and accept the drop.
+document.addEventListener('dragover', event => {
+  if (!panel || panel.dataset.mode !== 'drag' || !panel.contains(event.target)) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  panel.querySelector('.muse-drop-zone')?.classList.add('dragging')
+}, true)
+
+document.addEventListener('drop', event => {
+  if (!panel || panel.dataset.mode !== 'drag' || !panel.contains(event.target)) return
+  event.preventDefault()
+  event.stopPropagation()
+  const currentPanel = panel
+  const folderId = currentPanel.querySelector('select')?.value || 'inbox'
+  currentPanel.querySelector('.muse-drop-zone')?.classList.remove('dragging')
+  submit(activeAsset, folderId)
+}, true)
 
 document.addEventListener('pointerdown', event => {
   if (event.button !== 0 || event.target.closest('#muse-capture-panel, #muse-quick-capture')) return
@@ -621,7 +728,7 @@ document.addEventListener('pointerdown', event => {
     showPanel(activeAsset, 'hold', rect ? { rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } } : { x: holdStartPoint?.x || lastPointerPoint.x, y: holdStartPoint?.y || lastPointerPoint.y })
   }, 650)
 }, true)
-document.addEventListener('pointerup', () => { window.clearTimeout(holdTimer); holdTimer = null }, true)
+document.addEventListener('pointerup', cancelHoldCapture, true)
 document.addEventListener('pointermove', event => {
   if (holdTimer && holdStartPoint && Math.hypot(event.clientX - holdStartPoint.x, event.clientY - holdStartPoint.y) > 10) {
     window.clearTimeout(holdTimer)

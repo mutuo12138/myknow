@@ -1,7 +1,7 @@
 import { Folder, Inbox } from 'lucide-react'
 
 function previewUrl(item) {
-  return item.thumbnail_asset_url || item.asset_url || item.thumbnail_url
+  return item.thumbnail_asset_url || (item.material_type !== 'video' ? item.asset_url : null) || item.thumbnail_url
 }
 
 export function FolderShelf({ folders, materials, onPickFolder }) {

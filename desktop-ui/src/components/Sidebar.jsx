@@ -4,10 +4,23 @@ import { useEffect, useState } from 'react'
 const groups = ['图片', '视频', '文档', '网页']
 const groupIcon = { 图片: Image, 视频: Clapperboard, 文档: FileText, 网页: Library }
 
-export function Sidebar({ categories, folders, activeCategory, activeFolder, view, trashCount, draggingMaterial, activeDropTarget, onPickView, onPickCategory, onPickFolder, onCreateFolder, onDropMaterial }) {
+const batchStateLabel = { queued: '等待开始', running: '正在整理', stopping: '即将暂停', paused: '已暂停', completed: '已完成', partial: '部分完成', failed: '处理失败' }
+const activeBatchStates = new Set(['queued', 'running', 'stopping', 'paused'])
+
+function formatRemaining(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '正在计算…'
+  const rounded = Math.max(1, Math.ceil(seconds / 60))
+  if (rounded < 60) return `约 ${rounded} 分钟`
+  const hours = Math.floor(rounded / 60)
+  const minutes = rounded % 60
+  return minutes ? `约 ${hours} 小时 ${minutes} 分钟` : `约 ${hours} 小时`
+}
+
+export function Sidebar({ categories, folders, activeCategory, activeFolder, view, trashCount, aiStatus, draggingMaterial, activeDropTarget, onPickView, onPickCategory, onPickFolder, onCreateFolder, onDropMaterial, onOpenAI }) {
   const [creating, setCreating] = useState(false)
   const [folderName, setFolderName] = useState('')
   const [dropTarget, setDropTarget] = useState('')
+  const [clock, setClock] = useState(() => Date.now())
   const [collapsedGroups, setCollapsedGroups] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('myknow-collapsed-category-groups') || 'null')
@@ -17,6 +30,25 @@ export function Sidebar({ categories, folders, activeCategory, activeFolder, vie
     }
   })
   const visibleDropTarget = activeDropTarget || dropTarget
+  const recentBatches = aiStatus?.recent_batches || []
+  const batch = recentBatches.find(item => activeBatchStates.has(item.state)) || recentBatches[0]
+  const batchIsLive = Boolean(batch && activeBatchStates.has(batch.state))
+
+  useEffect(() => {
+    if (!batchIsLive) return undefined
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [batchIsLive, batch?.id])
+
+  const processedItems = Math.max(0, Number(batch?.processed_items) || 0)
+  const totalItems = Math.max(0, Number(batch?.total_items) || 0)
+  const batchPercent = totalItems ? Math.min(100, Math.round(processedItems / totalItems * 100)) : 0
+  const elapsedSeconds = batch?.started_at ? Math.max(0, clock / 1000 - Number(batch.started_at)) : 0
+  const rate = elapsedSeconds > 0 ? processedItems / elapsedSeconds : 0
+  const eta = batch?.state === 'completed' || batch?.state === 'partial' || batch?.state === 'failed'
+    ? '本批已结束'
+    : batch?.state === 'paused' ? '暂停中，可到整理中心继续'
+      : formatRemaining(rate > 0 ? (totalItems - processedItems) / rate : Number.NaN)
 
   useEffect(() => {
     if (!activeCategory) return
@@ -66,8 +98,9 @@ export function Sidebar({ categories, folders, activeCategory, activeFolder, vie
       if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(current => current === key ? '' : current)
     },
     onDrop: event => {
+      if (!draggingMaterial) return
       event.preventDefault()
-      const materialId = event.dataTransfer.getData('application/x-muse-material') || event.dataTransfer.getData('text/plain')
+      const materialId = event.dataTransfer.getData('application/x-muse-material')
       setDropTarget('')
       if (materialId) onDropMaterial(materialId, target)
     },
@@ -76,7 +109,7 @@ export function Sidebar({ categories, folders, activeCategory, activeFolder, vie
   const pickAll = () => onPickView('library')
 
   return <aside className={`category-rail ${draggingMaterial ? 'drag-session' : ''}`} onDragEnd={() => setDropTarget('')}>
-    <div className="rail-logo"><span className="logo-glyph"><i /><i /><i /></span><div><b>myknow</b><small>本机知识与素材库</small></div></div>
+    <div className="rail-logo"><img className="brand-icon" src="/favicon.png" alt="" /><div><b>myknow</b><small>本机知识与素材库</small></div></div>
     <button className={`library-root ${view === 'library' && !activeCategory && !activeFolder ? 'selected-tree' : ''}`} onClick={pickAll} type="button"><Library size={17} />全部素材</button>
 
     <div className="rail-section-heading"><p className="rail-label">文件夹</p><button type="button" onClick={() => setCreating(value => !value)} title="新建文件夹" aria-label="新建文件夹"><FolderPlus size={15} /></button></div>
@@ -111,6 +144,12 @@ export function Sidebar({ categories, folders, activeCategory, activeFolder, vie
       </div>
     })}
     </div>
+    {batch ? <section className={`ai-progress-card ${batchIsLive ? 'is-live' : 'is-done'}`} aria-label="AI 批量解析进度">
+      <div className="ai-progress-heading"><div><span>AI 批量进度</span><strong>{batchStateLabel[batch.state] || batch.state}</strong></div><button type="button" onClick={onOpenAI} title="打开整理中心" aria-label="打开整理中心"><ChevronRight size={14} /></button></div>
+      <div className="ai-progress-meta"><span>{processedItems} / {totalItems} 条</span><b>{batchPercent}%</b></div>
+      <div className="ai-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={batchPercent} aria-label="AI 批量解析进度"><i style={{ transform: `scaleX(${batchPercent / 100})` }} /></div>
+      <div className="ai-progress-foot"><span>{batch?.failed_items ? `失败 ${batch.failed_items} 条` : batchIsLive ? '已完成的项目会即时计入' : '处理结果已保存'}</span><span>{batchIsLive ? `预计剩余 ${eta}` : eta}</span></div>
+    </section> : null}
     <div className="rail-bottom"><span><ShieldCheck size={15} />数据保存在本机</span><small>拖动素材即可整理，删除可恢复</small></div>
   </aside>
 }

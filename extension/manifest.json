@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "myknow Capture",
-  "version": "0.7.2",
+  "version": "0.7.7",
   "description": "将你主动选择的网页、文字、图片、视频和链接保存到本机 myknow 素材库。",
   "permissions": ["activeTab", "contextMenus", "storage", "scripting"],
   "host_permissions": ["http://127.0.0.1:8765/*", "<all_urls>"],

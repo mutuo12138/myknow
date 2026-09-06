@@ -1,6 +1,5 @@
-import { AlertTriangle, BarChart3, BookOpen, Bot, Check, Clock3, ExternalLink, FileDown, FileText, FolderInput, HardDrive, Image, ImageOff, Library, Link2, LoaderCircle, Maximize2, MonitorDown, Palette, RotateCcw, ShieldAlert, SunDim, Tag, Trash2, Video } from 'lucide-react'
-import gsap from 'gsap'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { AlertTriangle, BarChart3, BookOpen, Bot, Check, CheckCheck, ClipboardCopy, Clock3, Copy, ExternalLink, FileDown, FileText, FolderInput, FolderOpen, HardDrive, Image, ImageOff, Library, Link2, LoaderCircle, Maximize2, MonitorDown, Palette, RotateCcw, ShieldAlert, SunDim, Tag, Trash2, Video } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
 const typeIcon = { image: Image, video: Video, document: FileText, presentation: MonitorDown, blog: BookOpen, page: Library, link: Library }
 const typeLabel = { image: '图片', video: '视频', document: '文档', presentation: '演示文稿', blog: '博客', page: '网页', link: '链接' }
@@ -41,7 +40,22 @@ function RgbHistogram({ histogram }) {
   </div>
 }
 
-export function Inspector({ item, folders, aiStatus, view, onPreview, onSaveTags, onMoveFolder, onAnalyze, onRetry, onRebuildThumbnail, onRequestExport, onMoveToTrash, onRestore, onPermanentDelete }) {
+function VideoPreview({ item }) {
+  const videoUrl = item?.asset_url || item?.media_url || ''
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [item?.id, videoUrl])
+
+  if (!videoUrl) {
+    return <div className="video-preview-state"><Video size={26} /><strong>暂无可播放视频</strong><span>这条记录只保存了来源信息，请保持原网页登录后重新拖入视频。</span></div>
+  }
+
+  return <>
+    {!failed ? <video className="inspector-video" controls preload="metadata" src={videoUrl} aria-label={`检视视频：${item.title}`} onError={() => setFailed(true)} /> : null}
+    {failed ? <div className="video-preview-state error" role="alert"><AlertTriangle size={24} /><strong>视频暂时无法播放</strong><span>原网页可能要求登录、链接已过期，或当前格式不受支持。请回到来源页面重新拖入。</span></div> : null}
+  </>
+}
+
+export function Inspector({ item, folders, aiStatus, view, onPreview, onCopyMaterial, onRevealLocation, onSaveTags, onMoveFolder, onAnalyze, onRetry, onRebuildThumbnail, onRequestExport, onMoveToTrash, onRestore, onPermanentDelete }) {
   const inspectorRef = useRef(null)
   const [tagText, setTagText] = useState('')
   const [saving, setSaving] = useState(false)
@@ -52,29 +66,17 @@ export function Inspector({ item, folders, aiStatus, view, onPreview, onSaveTags
   const [rebuildingThumbnail, setRebuildingThumbnail] = useState(false)
   const [exportingFormat, setExportingFormat] = useState('')
   const [previewFailed, setPreviewFailed] = useState(false)
+  const [promptCopied, setPromptCopied] = useState(false)
+  const [copyingMaterial, setCopyingMaterial] = useState(false)
+  const [materialCopied, setMaterialCopied] = useState(false)
   const [confirmAction, setConfirmAction] = useState('')
+  const isVideo = item?.material_type === 'video'
   const previewUrl = item?.asset_url || item?.thumbnail_asset_url || item?.thumbnail_url
+  const hasPreview = isVideo ? Boolean(item?.asset_url || item?.media_url) : Boolean(previewUrl)
   const recognizedText = item?.text_content?.trim() || ''
   const histogram = item?.histogram && typeof item.histogram === 'object' && !Array.isArray(item.histogram) ? item.histogram : {}
   const palette = Array.isArray(item?.palette) ? item.palette : []
-  useEffect(() => { setTagText(item?.tags?.join('，') || ''); setSaved(false); setPreviewFailed(false); setConfirmAction('') }, [item?.id, previewUrl, item?.is_deleted])
-
-  useLayoutEffect(() => {
-    if (!item || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
-    const context = gsap.context(() => {
-      const targets = inspectorRef.current?.querySelectorAll('.inspector-type, h2, .inspector-preview, .inspector-section, .tag-editor')
-      if (!targets?.length) return
-      gsap.fromTo(Array.from(targets).slice(0, 7), { x: 10, autoAlpha: 0.45 }, {
-        x: 0,
-        autoAlpha: 1,
-        duration: 0.24,
-        ease: 'power3.out',
-        stagger: 0.018,
-        clearProps: 'transform,opacity,visibility',
-      })
-    }, inspectorRef)
-    return () => context.revert()
-  }, [item?.id])
+  useEffect(() => { setTagText(item?.tags?.join('，') || ''); setSaved(false); setPreviewFailed(false); setPromptCopied(false); setMaterialCopied(false); setConfirmAction('') }, [item?.id, previewUrl, item?.is_deleted])
 
   if (!item) return <aside className="inspector" ref={inspectorRef}><div className="inspector-title"><span>素材详情</span></div><div className="empty-inspector"><Library size={25} /><p>选择一条素材后，这里会显示摘要、标签和视觉信息。</p></div></aside>
   const Icon = typeIcon[item.material_type] || FileText
@@ -127,25 +129,78 @@ export function Inspector({ item, folders, aiStatus, view, onPreview, onSaveTags
     try { await onPermanentDelete(item.id) } catch { /* App displays the API error. */ } finally { setMoving(false); setConfirmAction('') }
   }
 
+  const copyPrompt = async () => {
+    const promptText = [
+      item.prompt_positive ? `Positive Prompt: ${item.prompt_positive}` : '',
+      item.prompt_negative ? `Negative Prompt: ${item.prompt_negative}` : '',
+      item.verification_checklist ? `Verification: ${item.verification_checklist}` : '',
+    ].filter(Boolean).join('\n')
+    if (!promptText) return
+    const fallbackCopy = () => {
+      const textarea = document.createElement('textarea')
+      textarea.value = promptText
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      const copied = document.execCommand('copy')
+      textarea.remove()
+      if (!copied) throw new Error('copy command was rejected')
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(promptText) } catch { fallbackCopy() }
+      } else {
+        fallbackCopy()
+      }
+      setPromptCopied(true)
+      window.setTimeout(() => setPromptCopied(false), 1800)
+    } catch {
+      setPromptCopied(false)
+    }
+  }
+
+  const copyMaterial = async () => {
+    if (!onCopyMaterial || copyingMaterial) return
+    setCopyingMaterial(true)
+    try {
+      await onCopyMaterial(item)
+      setMaterialCopied(true)
+      window.setTimeout(() => setMaterialCopied(false), 1800)
+    } catch {
+      setMaterialCopied(false)
+    } finally {
+      setCopyingMaterial(false)
+    }
+  }
+
   const jobs = item.jobs || []
   const failedJobs = jobs.filter(job => job.state === 'dead')
   const canExport = ['page', 'blog'].includes(item.material_type) && item.snapshot_path
   const canBuildThumbnail = ['image', 'page', 'blog'].includes(item.material_type) && item.has_local_copy
+  const promptPositive = item.prompt_positive?.trim() || ''
+  const promptNegative = item.prompt_negative?.trim() || ''
+  const verificationChecklist = item.verification_checklist?.trim() || ''
 
   return <aside className="inspector" ref={inspectorRef}>
     <div className="inspector-title"><span>素材详情</span><span className={`item-state ${item.is_deleted ? 'deleted' : item.status}`}>{item.is_demo ? '预览示例' : item.is_deleted ? '回收站' : statusLabel[item.status] || '状态未知'}</span></div>
     <div className="inspector-type"><Icon size={17} /><span>{typeLabel[item.material_type] || '素材'} · {item.source_name || '本机采集'}</span></div>
     <h2 className="ai-readable-title">{item.title}</h2>
 
-    <figure className={`inspector-preview ${previewUrl && !previewFailed ? '' : 'empty'}`} onDoubleClick={() => { if (previewUrl && !previewFailed) onPreview(item) }} title={previewUrl && !previewFailed ? '双击查看大图' : undefined}>
-      {previewUrl && !previewFailed
-        ? <img src={previewUrl} alt={item.title} width={item.thumbnail_width || undefined} height={item.thumbnail_height || undefined} onError={() => setPreviewFailed(true)} />
-        : <div><ImageOff size={24} /><span>暂无可用预览</span></div>}
-      {previewUrl && !previewFailed ? <button className="inspector-zoom" type="button" onClick={() => onPreview(item)}><Maximize2 size={14} />查看大图</button> : null}
-      <figcaption>{item.material_type === 'image' ? '保存的图片' : ['page', 'blog'].includes(item.material_type) ? '网页采集时的页面画面' : '素材预览'}</figcaption>
+    <figure className={`inspector-preview ${hasPreview && !previewFailed ? '' : 'empty'} ${isVideo ? 'video-preview' : ''}`} onDoubleClick={() => { if (!isVideo && previewUrl && !previewFailed) onPreview(item) }} title={!isVideo && previewUrl && !previewFailed ? '双击查看大图' : undefined}>
+      {isVideo
+        ? <VideoPreview item={item} />
+        : previewUrl && !previewFailed
+          ? <img src={previewUrl} alt={item.title} width={item.thumbnail_width || undefined} height={item.thumbnail_height || undefined} onError={() => setPreviewFailed(true)} />
+          : <div><ImageOff size={24} /><span>暂无可用预览</span></div>}
+      {!isVideo && previewUrl && !previewFailed ? <button className="inspector-zoom" type="button" onClick={() => onPreview(item)}><Maximize2 size={14} />查看大图</button> : null}
+      <figcaption>{item.material_type === 'image' ? '保存的图片' : item.material_type === 'video' ? '视频检视 · 点击播放' : ['page', 'blog'].includes(item.material_type) ? '网页采集时的页面画面' : '素材预览'}</figcaption>
     </figure>
 
     <section className="inspector-section ai-readable-section"><span>内容摘要</span><p className="ai-readable-text">{item.ai_summary || '素材已经保存，后台正在整理内容。'}</p>{item.visual_description ? <p className="visual-description ai-readable-text">{item.visual_description}</p> : null}</section>
+
+    {item.material_type === 'image' && (promptPositive || promptNegative || verificationChecklist) ? <section className="inspector-section prompt-section"><div className="prompt-heading"><span>解析提示词</span><button type="button" onClick={copyPrompt} className="prompt-copy-button" title="复制全部解析提示词" aria-label="复制全部解析提示词">{promptCopied ? <CheckCheck size={13} /> : <Copy size={13} />}{promptCopied ? '已复制' : '复制全部'}</button></div>{promptPositive ? <div className="prompt-block"><small>正向提示词</small><p>{promptPositive}</p></div> : null}{promptNegative ? <div className="prompt-block negative"><small>反向提示词</small><p>{promptNegative}</p></div> : null}{verificationChecklist ? <div className="prompt-block verification"><small>核验提示</small><p>{verificationChecklist}</p></div> : null}</section> : null}
 
     {recognizedText ? <details className="recognized-text-panel"><summary><span>识别文本</span><small>可选中并复制</small></summary><pre className="recognized-text">{recognizedText}</pre></details> : null}
 
@@ -176,6 +231,8 @@ export function Inspector({ item, folders, aiStatus, view, onPreview, onSaveTags
     </section>
 
     {!item.is_demo ? <section className="inspector-actions">
+      {!item.is_deleted && item.has_local_copy ? <button type="button" onClick={copyMaterial} disabled={copyingMaterial}>{copyingMaterial ? <LoaderCircle size={15} /> : materialCopied ? <CheckCheck size={15} /> : <ClipboardCopy size={15} />}{copyingMaterial ? '正在复制' : materialCopied ? '已复制，可按 Ctrl+V' : '复制到剪贴板'}</button> : null}
+      {!item.is_deleted && item.has_local_copy && onRevealLocation ? <button type="button" onClick={() => onRevealLocation(item)} title="在资源管理器中选中后，可安全拖入其他程序"><FolderOpen size={15} />在文件夹中选中（可拖出）</button> : null}
       {!item.is_deleted ? <button type="button" onClick={runAI} disabled={!aiStatus.configured || analyzing} title="只授权 AI 分析当前这一条素材">{analyzing ? <LoaderCircle size={15} /> : <Bot size={15} />}{aiStatus.configured ? analyzing ? '已加入单条队列' : 'AI 分析本条' : 'AI 尚未配置'}</button> : null}
       {!item.is_deleted && canBuildThumbnail ? <button type="button" onClick={rebuildThumbnail} disabled={rebuildingThumbnail || ['queued', 'running'].includes(item.thumbnail_state)}>{rebuildingThumbnail || ['queued', 'running'].includes(item.thumbnail_state) ? <LoaderCircle size={15} /> : <RotateCcw size={15} />}{rebuildingThumbnail || ['queued', 'running'].includes(item.thumbnail_state) ? '缩略图生成中' : '重建列表缩略图'}</button> : null}
       {canExport ? <div className="offline-actions"><span>离线阅读</span><div>{item.pdf_path ? <a href={`/api/materials/${item.id}/offline/pdf`}><FileDown size={14} />下载 PDF</a> : <button type="button" onClick={() => requestExport('pdf')} disabled={Boolean(exportingFormat)}>{exportingFormat === 'pdf' ? <LoaderCircle size={14} /> : <FileDown size={14} />}生成 PDF</button>}{item.docx_path ? <a href={`/api/materials/${item.id}/offline/docx`}><FileDown size={14} />下载 Word</a> : <button type="button" onClick={() => requestExport('docx')} disabled={Boolean(exportingFormat)}>{exportingFormat === 'docx' ? <LoaderCircle size={14} /> : <FileDown size={14} />}生成 Word</button>}</div>{item.export_state && !['not_requested', 'ready'].includes(item.export_state) ? <span className="export-state"><LoaderCircle size={13} />离线文档生成中</span> : null}</div> : null}

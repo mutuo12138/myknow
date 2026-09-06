@@ -562,6 +562,7 @@ input {
   right: 7px;
 }
 
+.card-copy,
 .card-drag-handle,
 .card-more {
   border-radius: 7px;
@@ -872,6 +873,100 @@ select:focus-visible {
   }
 }
 
+.inspector-preview.video-preview {
+  display: block;
+  cursor: default;
+}
+
+.inspector-video {
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  aspect-ratio: 16 / 9;
+  background: var(--media-stage);
+  object-fit: contain;
+}
+
+.video-preview-state {
+  display: grid;
+  min-height: 172px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 22px 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.video-preview-state strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.video-preview-state span {
+  max-width: 30ch;
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.video-preview-state.error {
+  color: var(--danger);
+}
+
+.video-preview-state.error strong {
+  color: var(--danger);
+}
+
+/* Keep batch progress visible where the user's attention starts: the left rail. */
+.ai-progress-card {
+  display: grid;
+  gap: 8px;
+  margin: 20px 4px 0;
+  padding: 11px 10px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  contain: paint;
+}
+
+.ai-progress-heading,
+.ai-progress-meta,
+.ai-progress-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-progress-heading > div { display: grid; gap: 2px; min-width: 0; }
+.ai-progress-heading span { color: var(--muted); font-size: 10px; font-weight: 720; }
+.ai-progress-heading strong { color: var(--text); font-size: 11px; font-weight: 760; }
+.ai-progress-heading button { display: grid; width: 24px; height: 24px; padding: 0; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--dim); cursor: pointer; }
+.ai-progress-heading button:hover { background: var(--accent-soft); color: var(--accent); }
+.ai-progress-meta { color: var(--dim); font-size: 10px; font-variant-numeric: tabular-nums; }
+.ai-progress-meta b { color: var(--accent); font-size: 12px; }
+.ai-progress-track { height: 6px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--text) 11%, transparent); }
+.ai-progress-track i { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left center; transition: transform 180ms ease; }
+.ai-progress-card.is-done .ai-progress-track i { background: var(--success); }
+.ai-progress-foot { align-items: flex-start; color: var(--dim); font-size: 9px; line-height: 1.35; }
+.ai-progress-foot span:last-child { text-align: right; }
+
+.prompt-section { display: grid; gap: 10px; }
+.prompt-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.prompt-heading > span { color: var(--text) !important; }
+.prompt-copy-button { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border-soft)); border-radius: 7px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); color: var(--accent); cursor: pointer; font-size: 10px; font-weight: 700; }
+.prompt-copy-button:hover { border-color: var(--accent); background: var(--accent-soft); }
+.prompt-block { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.prompt-block small { color: var(--accent); font-size: 10px; font-weight: 750; }
+.prompt-block p { margin: 0; color: var(--text) !important; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px !important; line-height: 1.55; overflow-wrap: anywhere; }
+.prompt-block.negative small { color: var(--danger); }
+.prompt-block.verification small { color: var(--muted); }
+
+@media (max-width: 700px) {
+  .ai-progress-card { display: none; }
+}
+
 /* Final UI integrity pass: image fidelity, legibility and touch precision. */
 .material-card-select {
   width: 100%;
@@ -943,6 +1038,7 @@ select:focus-visible {
     height: 34px;
   }
 
+  .card-copy,
   .card-drag-handle,
   .card-more {
     width: 40px;
@@ -1618,5 +1714,371 @@ body {
 
   .masonry.density-compact {
     column-width: 112px;
+  }
+}
+
+/* Stable workbench surfaces: one active tool replaces the library canvas. */
+.workspace-surface {
+  min-height: calc(100dvh - 164px);
+  margin-top: 22px;
+  overflow: visible;
+}
+
+.workspace-surface > .ai-settings,
+.workspace-surface > .local-import,
+.workspace-surface > .storage-settings,
+.workspace-surface > .capture-guide,
+.workspace-surface > .material-assistant {
+  width: 100%;
+  min-height: calc(100dvh - 164px);
+  margin-top: 0;
+}
+
+.workspace-surface > .ai-settings {
+  padding: 22px 24px 0;
+}
+
+.workspace-surface > .local-import,
+.workspace-surface > .storage-settings,
+.workspace-surface > .capture-guide,
+.workspace-surface > .material-assistant {
+  padding: 22px 24px;
+}
+
+.titlebar-brand .brand-icon,
+.rail-logo .brand-icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.titlebar-brand .brand-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.rail-logo .brand-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.command-icon.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.usage-summary {
+  display: grid;
+  gap: 9px;
+  margin: 17px 0 0;
+  padding: 13px 14px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border-soft));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.activity-section {
+  padding: 16px 0 17px;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.activity-section .automation-section-title {
+  align-items: center;
+}
+
+.activity-section .ai-log-panel {
+  margin-top: 12px;
+}
+
+.usage-summary-main,
+.usage-summary-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.usage-summary-main > div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.usage-summary-main span,
+.usage-summary-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.usage-summary-main strong {
+  color: var(--text);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-summary-main strong small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.usage-summary-state {
+  flex: 0 0 auto;
+  color: var(--accent) !important;
+  font-size: 11px !important;
+  font-weight: 700;
+}
+
+.usage-meter {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.usage-meter span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: transform 220ms ease;
+}
+
+.usage-summary-meta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  color: var(--dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-summary-meta span + span {
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.logs-toggle {
+  min-width: 94px;
+  justify-content: center;
+}
+
+.logs-toggle .is-open {
+  transform: rotate(180deg);
+}
+
+.ai-log-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ai-log-heading-actions button + button {
+  color: var(--accent);
+}
+
+.ai-log-usage {
+  color: var(--accent) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.local-import-drop-surface {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  transition: border-color var(--ui-motion), background-color var(--ui-motion), box-shadow var(--ui-motion);
+}
+
+.local-import-drop-surface.is-drag-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.local-import-drop-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.local-import-drop-hint small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.local-import-drop-surface .local-import-controls {
+  margin-top: 11px;
+}
+
+.card-drag-handle {
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.card-drag-handle:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 700px) {
+  .workspace-surface {
+    min-height: auto;
+    margin-top: 15px;
+  }
+
+  .workspace-surface > .ai-settings,
+  .workspace-surface > .local-import,
+  .workspace-surface > .storage-settings,
+  .workspace-surface > .capture-guide,
+  .workspace-surface > .material-assistant {
+    min-height: auto;
+    padding: 17px 15px;
+  }
+
+  .usage-summary-main,
+  .usage-summary-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .usage-summary-meta span + span {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .local-import-drop-hint {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .local-import-drop-hint small {
+    width: 100%;
+    margin-left: 25px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-meter span,
+  .local-import-drop-surface {
+    transition: none;
+  }
+}
+
+/* ==========================================================
+   Motion stability pass: keep pointer-driven work on the compositor
+   and avoid replaying paint-heavy effects during list updates.
+   ========================================================== */
+:root {
+  --ui-motion: 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  --ui-motion-fast: 110ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.material-card {
+  contain: paint;
+  transition: border-color var(--ui-motion), background-color var(--ui-motion);
+}
+
+.material-card:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.material-card.selected {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent) !important;
+}
+
+.material-card.is-dragging {
+  transform: none !important;
+  opacity: 0.58;
+}
+
+.material-card .card-media,
+.material-card:hover .card-media,
+.material-card.selected .card-media {
+  transform: none !important;
+  box-shadow: none !important;
+  transition: border-color var(--ui-motion), background-color var(--ui-motion);
+}
+
+.card-direct-actions {
+  transition: opacity var(--ui-motion);
+}
+
+.card-copy,
+.card-drag-handle,
+.card-more {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition: color var(--ui-motion-fast), background-color var(--ui-motion-fast), border-color var(--ui-motion-fast);
+}
+
+.category-rail .drop-hover,
+.category-rail .trash-root.drop-hover {
+  transform: none !important;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 56%, transparent) !important;
+  transition: color var(--ui-motion), background-color var(--ui-motion), border-color var(--ui-motion);
+}
+
+.category-rail .trash-root.drop-hover {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--danger) 54%, transparent) !important;
+}
+
+.material-drag-ghost {
+  will-change: transform;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 8px 22px rgba(18, 28, 36, 0.18);
+}
+
+.workspace-surface > .ai-settings,
+.workspace-surface > .local-import,
+.workspace-surface > .storage-settings,
+.workspace-surface > .capture-guide,
+.workspace-surface > .material-assistant {
+  animation: workspace-surface-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes workspace-surface-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .material-card,
+  .material-card .card-media,
+  .card-direct-actions,
+  .card-copy,
+  .card-drag-handle,
+  .card-more,
+  .category-rail .drop-hover,
+  .category-rail .trash-root.drop-hover,
+  .workspace-surface > .ai-settings,
+  .workspace-surface > .local-import,
+  .workspace-surface > .storage-settings,
+  .workspace-surface > .capture-guide,
+  .workspace-surface > .material-assistant {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .material-drag-ghost {
+    will-change: auto;
   }
 }

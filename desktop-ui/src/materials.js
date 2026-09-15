@@ -145,3 +145,7 @@ export function matchesColor(item, color, tolerance = 28) {
   if (!target || !palette.length) return false
   return palette.some(rgb => perceptualDistance(rgb, target) <= tolerance)
 }
+
+export function pasteHint() {
+  return typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent || '') ? '⌘V' : 'Ctrl+V'
+}

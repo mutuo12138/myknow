@@ -483,14 +483,19 @@ input {
   background: var(--panel);
 }
 
+/* 重要：不要改回 CSS 多列（columns）排版。桌面端 WKWebView 对多列容器内的卡片/图片
+   存在绘制失效缺陷：布局稳定后卡片与图片不重绘，表现为大片空白卡（Chrome 正常）。
+   改用 CSS Grid（auto-fill），WebKit 与 Chromium 均稳定。 */
 .masonry {
-  columns: 4 210px;
-  column-gap: 17px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0 17px;
+  align-items: start;
 }
 
 .masonry.density-compact {
-  columns: 6 142px;
-  column-gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0 12px;
 }
 
 .material-card,
@@ -2081,4 +2086,52 @@ body {
   .material-drag-ghost {
     will-change: auto;
   }
+}
+
+/* Narrow-window hardening (2026-09-14): the library header lives in a grid
+ * column that can be far narrower than the viewport, so viewport-based media
+ * queries alone cannot protect it. Wrap instead of crush: flex items never
+ * shrink below content size, the bar flows onto a second line. */
+.library-header {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.header-copy {
+  flex: 1 1 220px;
+}
+.command-bar {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  min-width: 0;
+  justify-content: flex-end;
+}
+.command-group,
+.command-divider,
+.host-status {
+  flex-shrink: 0;
+}
+.primary-command,
+.ai-command,
+.assistant-command,
+.command-icon,
+.theme-toggle {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.search-row,
+.result-tools,
+.filter-bar {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.rail-section-heading {
+  flex-wrap: nowrap;
+}
+.rail-section-heading .rail-label {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

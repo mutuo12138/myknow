@@ -22,8 +22,9 @@ export function FolderShelf({ folders, materials, onPickFolder }) {
         const Icon = folder.id === 'inbox' ? Inbox : Folder
         return <button key={folder.id} className="folder-shelf-item" type="button" onClick={() => onPickFolder(folder.id)} title={`打开 ${folder.name}`}>
           <span className={`folder-shelf-preview preview-count-${previews.length}`}>
+            {/* 注意：不要加 loading="lazy" / decoding="async"，原因同 MaterialCard（WKWebView 下已下载的图可能永不绘制）。 */}
             {previews.length
-              ? previews.map(item => <img key={item.id} src={previewUrl(item)} alt="" width={item.thumbnail_width || undefined} height={item.thumbnail_height || undefined} loading="lazy" decoding="async" />)
+              ? previews.map(item => <img key={item.id} src={previewUrl(item)} alt="" width={item.thumbnail_width || undefined} height={item.thumbnail_height || undefined} />)
               : <Icon size={24} aria-hidden="true" />}
           </span>
           <span className="folder-shelf-meta"><strong>{folder.name}</strong><em>{folder.count}</em></span>

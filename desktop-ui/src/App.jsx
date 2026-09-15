@@ -13,7 +13,7 @@ import { MaterialContextMenu } from './components/MaterialContextMenu'
 import { Sidebar } from './components/Sidebar'
 import { StorageSettings } from './components/StorageSettings'
 import { Toolbar } from './components/Toolbar'
-import { BRIGHTNESS_OPTIONS, DEMO_MATERIALS, matchesColor } from './materials'
+import { BRIGHTNESS_OPTIONS, DEMO_MATERIALS, matchesColor, pasteHint } from './materials'
 import emptyVaultIllustration from './assets/empty-vault.jpg'
 
 function preferredTheme() {
@@ -444,7 +444,7 @@ export default function App() {
     if (bridge?.copy_file_to_clipboard) {
       const result = await bridge.copy_file_to_clipboard(item.local_path)
       if (!result?.ok) throw new Error(result?.error || '复制失败')
-      showToast(result.formats?.some(format => ['image', 'png'].includes(format)) ? '图片和文件已复制，可在目标位置按 Ctrl+V' : '文件已复制，可在目标位置按 Ctrl+V')
+      showToast(result.formats?.some(format => ['image', 'png'].includes(format)) ? `图片和文件已复制，可在目标位置按 ${pasteHint()}` : `文件已复制，可在目标位置按 ${pasteHint()}`)
       return result
     }
     if (!navigator.clipboard?.writeText) throw new Error('当前运行环境不支持文件剪贴板，请使用桌面版')
@@ -468,6 +468,33 @@ export default function App() {
     window.addEventListener('keydown', copySelectedMaterial)
     return () => window.removeEventListener('keydown', copySelectedMaterial)
   }, [activeSurface, copyMaterialToClipboard, selected])
+
+  useEffect(() => {
+    const quickLookSelectedMaterial = event => {
+      if (event.key !== ' ' && event.code !== 'Space') return
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
+      if (activeSurface !== 'library' || !selected || selected.is_deleted) return
+      const activeElement = document.activeElement
+      const tagName = activeElement?.tagName
+      const isEditing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tagName) || activeElement?.isContentEditable
+      if (isEditing) return
+      // 焦点不在素材卡片上时（如工具栏按钮）保留空格键原生行为。
+      const outsideLibrary = activeElement && activeElement !== document.body && !activeElement.closest?.('.masonry')
+      if (outsideLibrary) return
+      event.preventDefault()
+      const bridge = window.pywebview?.api
+      if (selected.has_local_copy && selected.local_path && bridge?.quick_look) {
+        // macOS 桌面版：调系统 Quick Look 面板（与访达空格预览一致）。
+        bridge.quick_look(selected.local_path)
+          .then(result => { if (!result?.ok) setLightboxItem(selected) })
+          .catch(() => setLightboxItem(selected))
+        return
+      }
+      setLightboxItem(selected)
+    }
+    window.addEventListener('keydown', quickLookSelectedMaterial)
+    return () => window.removeEventListener('keydown', quickLookSelectedMaterial)
+  }, [activeSurface, selected])
   const createFolder = name => runAction(async () => {
     const folder = await getJson('/api/folders', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),

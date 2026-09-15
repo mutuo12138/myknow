@@ -280,13 +280,14 @@ header p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .clear-filter-button { margin-left: auto; border-color: #53645d; background: transparent; color: #a4b9b1; }
 .clear-filter-button:hover { border-color: #8db5a5; color: #e2f2ed; }
 
-.masonry { columns: 3 210px; column-gap: 14px; }
-.masonry.density-compact { columns: 4 160px; column-gap: 10px; }
+/* 同 product-refinement.css：WKWebView 下 CSS 多列排版会导致卡片/图片不重绘，统一用 Grid。 */
+.masonry { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 14px; align-items: start; }
+.masonry.density-compact { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0 10px; }
 .load-more { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 0 24px; color: #80938b; font-size: 11px; }
 .load-more button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 14px; border: 1px solid #3a4a44; border-radius: 5px; background: #1a2823; color: #cfe8df; cursor: pointer; font-size: 11px; font-weight: 700; }
 .load-more button:hover { border-color: var(--accent); color: var(--accent); }
 .load-more button:disabled { cursor: wait; opacity: 0.6; }
-.material-card { break-inside: avoid; display: block; width: 100%; margin: 0 0 14px; overflow: hidden; border: 1px solid #2d3835; border-radius: 8px; background: #171d1b; color: #dce8e4; text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 390px; transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
+.material-card { break-inside: avoid; display: block; width: 100%; margin: 0 0 14px; overflow: hidden; border: 1px solid #2d3835; border-radius: 8px; background: #171d1b; color: #dce8e4; text-align: left; cursor: pointer; transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 .material-card:hover { transform: translateY(-2px); border-color: #5c7b70; box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18); }
 .material-card.selected { border-color: var(--selected); box-shadow: 0 0 0 1px var(--selected), 0 14px 28px rgba(0, 0, 0, 0.2); }
 .card-media { position: relative; display: grid; min-height: 0; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; background: color-mix(in srgb, var(--material-color) 48%, #15201d); }
@@ -312,7 +313,7 @@ header p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: -2px 0 10px; }
 .card-tags span { max-width: 100%; padding: 3px 5px; overflow: hidden; border-radius: 4px; background: #223832; color: #9bcbb9; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
 .card-footer { display: flex; justify-content: space-between; gap: 10px; color: #71817b; font-size: 10px; }
-.density-compact .material-card { margin-bottom: 10px; contain-intrinsic-size: auto 300px; }
+.density-compact .material-card { margin-bottom: 10px; }
 .density-compact .card-content { padding: 9px; }
 .density-compact .card-source { margin-bottom: 5px; }
 .density-compact .card-content strong { font-size: 12px; -webkit-line-clamp: 1; }

@@ -1,5 +1,6 @@
 import { AlertTriangle, BarChart3, BookOpen, Bot, Check, CheckCheck, ClipboardCopy, Clock3, Copy, ExternalLink, FileDown, FileText, FolderInput, FolderOpen, HardDrive, Image, ImageOff, Library, Link2, LoaderCircle, Maximize2, MonitorDown, Palette, RotateCcw, ShieldAlert, SunDim, Tag, Trash2, Video } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { pasteHint } from '../materials'
 
 const typeIcon = { image: Image, video: Video, document: FileText, presentation: MonitorDown, blog: BookOpen, page: Library, link: Library }
 const typeLabel = { image: '图片', video: '视频', document: '文档', presentation: '演示文稿', blog: '博客', page: '网页', link: '链接' }
@@ -231,7 +232,7 @@ export function Inspector({ item, folders, aiStatus, view, onPreview, onCopyMate
     </section>
 
     {!item.is_demo ? <section className="inspector-actions">
-      {!item.is_deleted && item.has_local_copy ? <button type="button" onClick={copyMaterial} disabled={copyingMaterial}>{copyingMaterial ? <LoaderCircle size={15} /> : materialCopied ? <CheckCheck size={15} /> : <ClipboardCopy size={15} />}{copyingMaterial ? '正在复制' : materialCopied ? '已复制，可按 Ctrl+V' : '复制到剪贴板'}</button> : null}
+      {!item.is_deleted && item.has_local_copy ? <button type="button" onClick={copyMaterial} disabled={copyingMaterial}>{copyingMaterial ? <LoaderCircle size={15} /> : materialCopied ? <CheckCheck size={15} /> : <ClipboardCopy size={15} />}{copyingMaterial ? '正在复制' : materialCopied ? `已复制，可按 ${pasteHint()}` : '复制到剪贴板'}</button> : null}
       {!item.is_deleted && item.has_local_copy && onRevealLocation ? <button type="button" onClick={() => onRevealLocation(item)} title="在资源管理器中选中后，可安全拖入其他程序"><FolderOpen size={15} />在文件夹中选中（可拖出）</button> : null}
       {!item.is_deleted ? <button type="button" onClick={runAI} disabled={!aiStatus.configured || analyzing} title="只授权 AI 分析当前这一条素材">{analyzing ? <LoaderCircle size={15} /> : <Bot size={15} />}{aiStatus.configured ? analyzing ? '已加入单条队列' : 'AI 分析本条' : 'AI 尚未配置'}</button> : null}
       {!item.is_deleted && canBuildThumbnail ? <button type="button" onClick={rebuildThumbnail} disabled={rebuildingThumbnail || ['queued', 'running'].includes(item.thumbnail_state)}>{rebuildingThumbnail || ['queued', 'running'].includes(item.thumbnail_state) ? <LoaderCircle size={15} /> : <RotateCcw size={15} />}{rebuildingThumbnail || ['queued', 'running'].includes(item.thumbnail_state) ? '缩略图生成中' : '重建列表缩略图'}</button> : null}

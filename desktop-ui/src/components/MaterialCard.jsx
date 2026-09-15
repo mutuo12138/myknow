@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, BookOpen, Check, ClipboardCopy, FileText, Globe2, GripVertical, HardDrive, Image, Library, Link2, LoaderCircle, MonitorDown, MoreHorizontal, Video } from 'lucide-react'
-import { colorFrom } from '../materials'
+import { colorFrom, pasteHint } from '../materials'
 
 const typeIcon = { image: Image, video: Video, document: FileText, presentation: MonitorDown, blog: BookOpen, page: Library, link: Library }
 const typeLabel = { image: '图片', video: '视频', document: '文档', presentation: '演示文稿', blog: '博客', page: '网页', link: '链接' }
@@ -149,8 +149,11 @@ export function MaterialCard({ item, selected, dragging, onSelect, onPreview, on
   return <article ref={cardRef} className={`material-card ${selected ? 'selected' : ''} ${dragging ? 'is-dragging' : ''}`} data-material-id={item.id} data-material-type={item.material_type} style={{ '--material-color': colorFrom(item), '--media-ratio': mediaRatio }} onContextMenu={openAtPointer}>
     <button className="material-card-select" onClick={() => onSelect(item)} onKeyDown={openFromKeyboard} type="button">
       <div className="card-media" onDoubleClick={event => { event.stopPropagation(); if (showImage) onPreview(item) }}>
+        {/* 注意：img 不要加 loading="lazy" / decoding="async"。WKWebView（桌面端）
+            在多列瀑布流里对这两者都有已知的“已下载但不绘制”缺陷，会导致部分卡片
+            空白且无任何报错；Chrome 正常。卡片也不再使用 content-visibility。 */}
         {showImage
-          ? <img className={`material-preview preview-${item.material_type}`} src={previewUrl} alt={item.title} width={item.thumbnail_width || undefined} height={item.thumbnail_height || undefined} loading="lazy" decoding="async" draggable="false" onDragStart={event => event.preventDefault()} onError={() => setImageFailed(true)} />
+          ? <img className={`material-preview preview-${item.material_type}`} src={previewUrl} alt={item.title} width={item.thumbnail_width || undefined} height={item.thumbnail_height || undefined} draggable="false" onDragStart={event => event.preventDefault()} onError={() => setImageFailed(true)} />
           : <div className="media-empty"><Icon className="media-placeholder" size={30} aria-hidden="true" /><span>{item.source_name || '暂无本地预览'}</span></div>}
         <span className="type-mark"><Icon size={13} />{typeLabel[item.material_type] || '素材'}</span>
         {item.has_local_copy ? <span className="local-copy-mark" title={item.is_linked ? '原位置引用，不复制文件' : '本地副本可用'}>{item.is_linked ? <Link2 size={12} /> : <HardDrive size={12} />}{item.is_linked ? '引用' : '本地'}</span> : null}
@@ -165,7 +168,7 @@ export function MaterialCard({ item, selected, dragging, onSelect, onPreview, on
       </div>
     </button>
     <div className="card-direct-actions">
-      {item.has_local_copy && !item.is_deleted ? <button className="card-copy" type="button" onClick={copyMaterial} disabled={copying} title="复制到剪贴板，随后可按 Ctrl+V 粘贴" aria-label={`复制到剪贴板：${item.title}`}>{copied ? <Check size={15} /> : <ClipboardCopy size={15} />}</button> : null}
+      {item.has_local_copy && !item.is_deleted ? <button className="card-copy" type="button" onClick={copyMaterial} disabled={copying} title={`复制到剪贴板，随后可按 ${pasteHint()} 粘贴`} aria-label={`复制到剪贴板：${item.title}`}>{copied ? <Check size={15} /> : <ClipboardCopy size={15} />}</button> : null}
       {canMove ? <button className="card-drag-handle" type="button" onMouseDown={beginMouseDrag} onPointerDown={beginPointerDrag} onPointerMove={movePointerDrag} onPointerUp={endPointerDrag} onPointerCancel={endPointerDrag} onLostPointerCapture={losePointerCapture} onClick={event => event.stopPropagation()} title="仅在素材库内拖动整理" aria-label={`在素材库内拖动整理：${item.title}`} aria-pressed={dragging}><GripVertical size={15} /></button> : null}
       <button className="card-more" type="button" onClick={openAtButton} title="更多操作" aria-label={`更多操作：${item.title}`}><MoreHorizontal size={16} /></button>
     </div>

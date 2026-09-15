@@ -264,8 +264,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .tag-expand { flex: 0 0 auto; }
 
 /* Material tiles */
-.masonry { columns: 3 214px; column-gap: 13px; }
-.masonry.density-compact { columns: 4 174px; column-gap: 10px; }
+/* 同 product-refinement.css：WKWebView 下 CSS 多列排版会导致卡片/图片不重绘，统一用 Grid。 */
+.masonry {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0 13px;
+  align-items: start;
+}
+
+.masonry.density-compact {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0 10px;
+}
 .material-card {
   position: relative;
   break-inside: avoid;
@@ -275,8 +285,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   overflow: hidden;
   border-radius: 16px;
   color: var(--text);
-  content-visibility: auto;
-  contain-intrinsic-size: auto 390px;
   transition: border-color var(--ui-motion), box-shadow var(--ui-motion), transform var(--ui-motion), opacity 140ms ease;
 }
 [data-theme="light"] .material-card { border-color: var(--border-soft); background: var(--panel); box-shadow: 0 1px 2px rgba(37, 38, 50, 0.025); }
@@ -305,7 +313,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .card-drag-handle { cursor: grab; touch-action: none; }
 .card-drag-handle:active { cursor: grabbing; }
 .card-copy:hover, .card-drag-handle:hover, .card-more:hover { background: rgba(41, 49, 66, 0.94); }
-.density-compact .material-card { margin-bottom: 10px; contain-intrinsic-size: auto 300px; }
+.density-compact .material-card { margin-bottom: 10px; }
 .density-compact .card-content p { display: none; }
 
 /* Inspector */

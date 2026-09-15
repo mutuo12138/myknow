@@ -5,6 +5,7 @@ import ctypes
 import io
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -144,6 +145,34 @@ def configure_interactively() -> int:
         root.destroy()
 
 
+def _resolve_local_file(path: str):
+    """Resolve one user-facing path to an existing local file or an error dict."""
+    candidate = Path(str(path or "")).expanduser()
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return {"ok": False, "error": "素材文件不存在"}
+    if not resolved.is_file():
+        return {"ok": False, "error": "只能操作本地文件"}
+    return resolved
+
+
+def copy_local_file_to_clipboard_macos(path: str) -> dict:
+    """Write one local file URL to the macOS pasteboard (⌘V pastes it in Finder)."""
+    resolved = _resolve_local_file(path)
+    if isinstance(resolved, dict):
+        return resolved
+    try:
+        from AppKit import NSPasteboard, NSURL
+    except ImportError:
+        return {"ok": False, "error": "当前环境缺少 macOS 剪贴板组件"}
+    pasteboard = NSPasteboard.generalPasteboard()
+    pasteboard.clearContents()
+    if not pasteboard.writeObjects_([NSURL.fileURLWithPath_(str(resolved))]):
+        return {"ok": False, "error": "写入系统剪贴板失败"}
+    return {"ok": True, "path": str(resolved), "formats": ["file"]}
+
+
 class DesktopApi:
     def __init__(self) -> None:
         # Keep the native window private. Public attributes on a pywebview
@@ -218,10 +247,29 @@ class DesktopApi:
         }
 
     def copy_file_to_clipboard(self, path: str) -> dict:
-        """Copy one verified local material to the Windows clipboard."""
+        """Copy one verified local material to the system clipboard."""
+        if sys.platform == "darwin":
+            return copy_local_file_to_clipboard_macos(path)
         from clipboard_bridge import copy_file_to_clipboard
 
         return copy_file_to_clipboard(path)
+
+    def quick_look(self, path: str) -> dict:
+        """Preview one local material with the macOS Quick Look panel (space key)."""
+        if sys.platform != "darwin":
+            return {"ok": False, "error": "当前平台不支持快速预览"}
+        resolved = _resolve_local_file(path)
+        if isinstance(resolved, dict):
+            return resolved
+        try:
+            subprocess.Popen(
+                ["qlmanage", "-p", str(resolved)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as error:
+            return {"ok": False, "error": f"无法打开快速预览：{error}"}
+        return {"ok": True, "path": str(resolved)}
 
     def save_extension(self) -> dict:
         """Save the bundled browser extension through the native file dialog."""
@@ -329,6 +377,19 @@ def show_startup_error(error: Exception) -> None:
             return
         except Exception:
             pass
+    if sys.platform == "darwin":
+        try:
+            env = os.environ.copy()
+            env["MYKNOW_STARTUP_ERROR"] = message
+            subprocess.run(
+                ["osascript", "-e",
+                 'display alert "myknow 启动失败" message (system attribute "MYKNOW_STARTUP_ERROR") as critical'],
+                env=env, timeout=15, check=False,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return
+        except Exception:
+            pass
     print(message, file=sys.stderr)
 
 
@@ -346,6 +407,64 @@ def stop_processes(processes: list[subprocess.Popen]) -> None:
             process.kill()
 
 
+def read_service_health(port: int) -> dict | None:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=0.5) as response:
+            if response.status != 200:
+                return None
+            payload = json.loads(response.read().decode("utf-8"))
+            return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def reclaim_stale_service(port: int, log_root: Path) -> bool:
+    """Take over the port from a previous myknow instance that never exited.
+
+    A hard crash (e.g. AppKit called off the main thread) orphans the
+    api/worker child processes; they keep serving /api/health, which would
+    otherwise block every future launch. Only reclaim when the health
+    endpoint proves the listener is our own service.
+    """
+    health = read_service_health(port)
+    if not health or health.get("service") != "myknow-local-api":
+        return False
+    if sys.platform != "darwin":
+        return False
+    try:
+        probe = subprocess.run(
+            ["lsof", "-ti", f"tcp:{port}"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception as error:
+        append_launcher_log(log_root, f"reclaim_lsof_failed error={error}")
+        return False
+    pids = [line.strip() for line in probe.stdout.splitlines() if line.strip().isdigit()]
+    if not pids:
+        return False
+    append_launcher_log(log_root, f"reclaim_stale_service pids={','.join(pids)}")
+    for pid in pids:
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, ValueError) as error:
+            append_launcher_log(log_root, f"reclaim_terminate_failed pid={pid} error={error}")
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and port_in_use(port):
+        time.sleep(0.25)
+    if port_in_use(port):
+        for pid in pids:
+            try:
+                os.kill(int(pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, ValueError):
+                pass
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and port_in_use(port):
+            time.sleep(0.25)
+    reclaimed = not port_in_use(port)
+    append_launcher_log(log_root, f"reclaim_done reclaimed={reclaimed}")
+    return reclaimed
+
+
 class TrayController:
     """Keep the native window available from the Windows notification area."""
 
@@ -356,9 +475,17 @@ class TrayController:
         self._icon = None
         self._thread: threading.Thread | None = None
         self._allow_close = False
+        self._tray_active = False
         self._lock = threading.Lock()
 
     def start(self) -> None:
+        if sys.platform == "darwin":
+            # pystray drives AppKit from a worker thread; macOS terminates
+            # the process for touching NSApplication off the main thread.
+            # The native window owns the main thread instead; closing the
+            # window quits the app (see handle_closing).
+            append_launcher_log(self.log_root, "tray_skipped_darwin")
+            return
         import pystray
         from PIL import Image
 
@@ -373,12 +500,15 @@ class TrayController:
         self._icon = pystray.Icon("myknow", image, "myknow", menu)
         self._thread = threading.Thread(target=self._icon.run, name="myknow-tray", daemon=True)
         self._thread.start()
+        self._tray_active = True
         append_launcher_log(self.log_root, "tray_started")
 
     def handle_closing(self, window=None) -> bool:
         with self._lock:
             allow_close = self._allow_close
-        if allow_close:
+        if allow_close or not self._tray_active:
+            # No tray (e.g. macOS): closing the window quits the app, which
+            # lets the launcher shut down the api/worker child processes.
             return True
         try:
             self.window.hide()
@@ -488,13 +618,17 @@ def main() -> int:
     tray: TrayController | None = None
     try:
         if port_in_use(api_port):
-            try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{api_port}/api/health", timeout=0.5) as response:
-                    if response.status == 200:
+            if reclaim_stale_service(api_port, log_root):
+                append_launcher_log(log_root, f"reclaimed stale service on port {api_port}")
+            else:
+                try:
+                    health = read_service_health(api_port)
+                    if health is not None:
                         raise RuntimeError(f"已有 myknow 正在运行（端口 {api_port}）。请先关闭旧版本，再启动这个版本。")
-            except RuntimeError:
-                raise
-            except Exception:
+                except RuntimeError:
+                    raise
+                except Exception:
+                    pass
                 raise RuntimeError(f"端口 {api_port} 已被其他程序占用。请关闭占用程序后再启动 myknow。")
         api_pair = start_process(service_command("api"), ROOT, env, log_root / "api.log")
         process_pairs.append(api_pair)
@@ -521,7 +655,8 @@ def main() -> int:
             import webview
             desktop_api = DesktopApi()
             window = webview.create_window(
-                "myknow", url, js_api=desktop_api, min_size=(1080, 720), background_color="#111413"
+                "myknow", url, js_api=desktop_api, width=1280, height=800,
+                min_size=(1080, 720), background_color="#111413"
             )
             desktop_api._window = window
             icon = application_icon_path()
